@@ -53,6 +53,13 @@ class ModuleJavUncensored(PluginModuleBase):
             f"{self.name}_delay_per_file": "0",
             f"{self.name}_scan_with_plex_mate": "False",
             f"{self.name}_dry_run": "False",
+            # 동반자막 처리 기본 설정
+            f"{self.name}_companion_enable": "False",
+            f"{self.name}_companion_add_ko": "True",
+            f"{self.name}_companion_detect_kor": "False",
+            f"{self.name}_companion_use_separate_path": "False",
+            f"{self.name}_companion_path": "",
+            f"{self.name}_companion_meta_fail_path": "",
         }
         self.web_list_model = ModelJavUncensoredItem
 

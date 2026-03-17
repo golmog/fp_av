@@ -72,6 +72,13 @@ class TaskBase:
             "PLEXMATE스캔": ModelSetting.get_bool("jav_uncensored_scan_with_plex_mate"),
             "드라이런": ModelSetting.get_bool("jav_uncensored_dry_run"),
             'PLEXMATE_URL': F.SystemModelSetting.get('ddns'),
+
+            "동반자막처리활성화": ModelSetting.get_bool("jav_uncensored_companion_enable"),
+            "동반자막언어코드추가": ModelSetting.get_bool("jav_uncensored_companion_add_ko"),
+            "동반자막한국어자막판별": ModelSetting.get_bool("jav_uncensored_companion_detect_kor"),
+            "동반자막경로별도처리": ModelSetting.get_bool("jav_uncensored_companion_use_separate_path"),
+            "동반자막처리경로": ModelSetting.get("jav_uncensored_companion_path").strip(),
+            "동반자막처리경로_메타실패시": ModelSetting.get("jav_uncensored_companion_meta_fail_path").strip(),
         }
 
         config['parse_mode'] = 'uncensored'
@@ -186,7 +193,7 @@ class Task:
         final_path_str = ""
         final_format_str = config.get('이동폴더포맷', '').strip()
         final_move_type = "normal"
-        is_failed_move = False # 플래그
+        is_failed_move = False
 
         # --- 1. 메타 정보 획득 ---
         meta_info = None
@@ -219,47 +226,63 @@ class Task:
             else:
                 return None, "meta_fail_skipped", meta_info
 
-        # --- 3. 오버라이드 (Censored와 동일 로직) ---
+        # --- 3. 오버라이드 룰 확인 및 병합 ---
         
-        # 3-1. 동반 자막
-        if is_companion_pair:
-            companion_config = config.get('동반자막처리', {})
-            comp_path = ""
-            if is_meta_success:
-                comp_path = config.get('동반자막처리경로_메타성공시') or companion_config.get('경로_메타성공시')
-            else:
-                comp_path = config.get('동반자막처리경로_메타실패시') or companion_config.get('경로_메타실패시')
-            
-            if not comp_path:
-                comp_path = config.get('동반자막처리경로') or companion_config.get('경로')
-                is_failed_move = False 
+        # 3-1. 커스텀 룰 사전 확인
+        matched_custom_rule = None
+        if config.get('커스텀경로활성화', False):
+            matched_custom_rule = CensoredTask._find_and_merge_custom_path_rules(info, config.get('커스텀경로규칙', []), meta_info)
+            if matched_custom_rule and not (is_meta_success or matched_custom_rule.get('force_on_meta_fail') or matched_custom_rule.get('메타실패시강제적용')):
+                matched_custom_rule = None
 
-            if comp_path: 
+        # 3-2. 동반 자막 처리
+        if is_companion_pair:
+            comp_path = ""
+            comp_format = ""
+            use_separate_path = config.get('동반자막경로별도처리', False)
+
+            if matched_custom_rule:
+                if not is_meta_success:
+                    comp_path = matched_custom_rule.get('동반자막처리경로_메타실패시')
+                if not comp_path:
+                    comp_path = matched_custom_rule.get('동반자막처리경로')
+                comp_format = matched_custom_rule.get('동반자막처리폴더포맷')
+                if comp_path: use_separate_path = True 
+
+            if use_separate_path and not comp_path:
+                if not is_meta_success:
+                    comp_path = config.get('동반자막처리경로_메타실패시')
+                if not comp_path:
+                    comp_path = config.get('동반자막처리경로')
+            
+            if not comp_format:
+                comp_format = config.get('동반자막처리폴더포맷', '')
+
+            if use_separate_path and not comp_path:
+                logger.warning(f"동반자막 별도 경로가 설정되어 있지 않아 기본 경로를 따릅니다.")
+                use_separate_path = False
+
+            if use_separate_path and comp_path: 
                 final_path_str = comp_path
-            
-            final_move_type = 'companion_kor'
-            
-            comp_format = config.get('동반자막처리폴더포맷') or companion_config.get('폴더포맷')
-            if comp_format: 
+                final_move_type = 'companion_kor'
+                is_failed_move = False
+                
+            if use_separate_path and comp_format: 
                 final_format_str = comp_format
 
-        # 3-2. 커스텀 경로 규칙
-        if config.get('커스텀경로활성화', False):
-            # Uncensored는 CensoredTask의 헬퍼 사용
-            rule = CensoredTask._find_and_merge_custom_path_rules(info, config.get('커스텀경로규칙', []), meta_info)
-            if rule and (is_meta_success or rule.get('force_on_meta_fail')):
-                custom_path = rule.get('path') or rule.get('경로', '')
-                if custom_path: 
-                    final_path_str = custom_path
-                    final_move_type = 'custom_path'
-                custom_format = rule.get('format') or rule.get('폴더포맷', '')
-                if custom_format: 
-                    final_format_str = custom_format
-
+        # 3-3. 일반 커스텀 경로
+        elif matched_custom_rule:
+            custom_path = matched_custom_rule.get('path') or matched_custom_rule.get('경로', '')
+            if custom_path: 
+                final_path_str = custom_path
+                final_move_type = 'custom_path'
                 is_failed_move = False
+            custom_format = matched_custom_rule.get('format') or matched_custom_rule.get('폴더포맷', '')
+            if custom_format: 
+                final_format_str = custom_format
 
-        # 3-3. 자막 우선 처리
-        if not is_companion_pair and sub_config.get('처리활성화', False):
+        # 3-4. 자막 우선 처리
+        elif not is_companion_pair and sub_config.get('처리활성화', False):
             is_applicable = False
             rule = sub_config.get('규칙', {})
             exclude_pattern = rule.get('이동제외패턴')
@@ -270,25 +293,23 @@ class Task:
                     if has_internal or has_external: is_applicable = True
                 elif info['file_type'] == 'subtitle':
                     is_applicable = True
+            
             if is_applicable:
                 sub_path = rule.get('경로')
                 if sub_path:
                     final_path_str = sub_path
                     final_move_type = 'subbed'
                     is_failed_move = False
-
+        
         # --- 4. 최종 경로 조립 ---
         if not final_path_str:
             return None, final_move_type, meta_info
 
-        # 헬퍼 호출
         base_path, path_template = CensoredTask._resolve_path_template(config, info, meta_info, final_path_str)
 
-        # [포맷 확정 로직] 플래그 사용
         if is_failed_move:
             final_format_str = ""
         
-        # [결합]
         if path_template and final_format_str:
             final_format_str = f"{path_template.rstrip('/')}/{final_format_str.lstrip('/')}"
         elif path_template:
@@ -296,11 +317,9 @@ class Task:
         elif final_format_str:
             final_format_str = final_format_str
 
-        # is_code_folder 판단
         if final_format_str:
             last_segment = final_format_str.split('/')[-1].lower()
-            code_tags = ['{code}', '{code_lower}']
-
+            code_tags = ['{code}', '{code_lower}', '{code_upper}']
             info['is_code_folder'] = any(tag in last_segment for tag in code_tags)
         else:
             info['is_code_folder'] = False
