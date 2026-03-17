@@ -410,8 +410,11 @@ class ToolExpandFileProcess:
 
             ori_name_raw = ""
             if is_part_set:
+                raw_prefix = info.get('part_set_prefix', '').strip()
+                clean_prefix = re.sub(r'[-_\s]?(cd|part|pt)$', '', raw_prefix, flags=re.I)
+
                 # 신규 분할 파일: prefix와 suffix를 합쳐 원본명 대표 생성
-                ori_name_raw = f"{info.get('part_set_prefix', '')} {info.get('part_set_suffix', '')}"
+                ori_name_raw = f"{clean_prefix} {info.get('part_set_suffix', '')}"
                 file_size = info.get('part_set_total_size')
             else:
                 # 신규 단일 파일
