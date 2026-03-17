@@ -60,8 +60,13 @@
     {{ macros.m_hr() }}
     {{ macros.setting_input_text_and_buttons('jav_uncensored_filename_test', '파일명 변경 테스트', [['jav_uncensored_filename_test_btn', '테스트']], value=arg['jav_uncensored_filename_test'], desc=None) }}
 
+    {{ macros.m_hr() }}
+    {{ macros.setting_checkbox('jav_uncensored_companion_enable', '동반자막 처리', value=arg['jav_uncensored_companion_enable'], desc=['On: 영상과 같은 이름의 자막 파일이 존재하면 파일명 변경 시 영상과 이름을 동기화하고 함께 처리합니다.']) }}
+    <div id="jav_uncensored_companion_enable_div" class="collapse">
+      {{ macros.setting_checkbox('jav_uncensored_companion_add_ko', '언어코드(.ko) 추가', value=arg['jav_uncensored_companion_add_ko'], desc=['On: 자막 파일 끝에 언어코드(.ko)를 추가합니다.']) }}
+      {{ macros.setting_checkbox('jav_uncensored_companion_detect_kor', '한국어 자막 판별', value=arg['jav_uncensored_companion_detect_kor'], desc=['On: 한국어 자막 판별을 시도하여 외국어로 판별될 경우 언어코드를 붙이지 않습니다.', '주의: 서식이 많은 ass 자막 등은 오인식 확률이 높습니다. chardet 라이브러리가 필요합니다.']) }}
+    </div>
   {{ macros.m_tab_content_end() }}  
-
 
   {{ macros.m_tab_content_start('folders', false) }}
     {{ macros.setting_input_text('jav_uncensored_folder_format', '기본 폴더 구조', value=arg['jav_uncensored_folder_format'], desc=['예) {label}/{code} : 레이블폴더/품번폴더 생성 후 이동', '{studio}: 제작사 / {label_1}: 레이블 첫 글자']) }}
@@ -89,11 +94,18 @@
       {{ macros.setting_checkbox('jav_uncensored_make_json', 'JSON 파일 생성', value=arg['jav_uncensored_make_json'], desc=['폴더 포맷에 관계없이 품번.json으로 생성됩니다.']) }}
       {{ macros.setting_checkbox('jav_uncensored_make_image', '이미지 파일 생성', value=arg['jav_uncensored_make_image'], desc=None) }}
       {{ macros.setting_checkbox('jav_uncensored_make_trailer', '트레일러 파일 생성', value=arg['jav_uncensored_make_trailer'], desc=None) }}
-      {{ macros.setting_checkbox('jav_censored_make_overwrite', '부가파일 덮어쓰기', value=arg['jav_censored_make_overwrite'], desc=['On: 이미 부가 파일(YAML, NFO, 이미지 등)이 존재하더라도 새로 생성하여 덮어씁니다.', 'Off: 파일이 이미 존재하는 경우 생성을 건너뜁니다. (JSON은 항상 갱신)']) }}
+      {{ macros.setting_checkbox('jav_uncensored_make_overwrite', '부가파일 덮어쓰기', value=arg['jav_uncensored_make_overwrite'], desc=['On: 이미 부가 파일(YAML, NFO, 이미지 등)이 존재하더라도 새로 생성하여 덮어씁니다.', 'Off: 파일이 이미 존재하는 경우 생성을 건너뜁니다. (JSON은 항상 갱신)']) }}
       {{ macros.setting_checkbox('jav_uncensored_include_media_path', '부가파일 내 미디어 경로 포함', value=arg['jav_uncensored_include_media_path'], desc=['JSON/NFO/YAML 내에 이미지/트레일러 URL 포함 여부']) }}
     </div>
 
     {{ macros.setting_input_text('jav_uncensored_target_path', '기본 이동 경로', value=arg['jav_uncensored_target_path'], desc=['위 조건에 해당하지 않고, 품번이 정상적으로 파싱된 파일이 이동할 기본 경로입니다.']) }}
+
+    {{ macros.m_hr() }}
+    {{ macros.setting_checkbox('jav_uncensored_companion_use_separate_path', '동반자막 영상 별도 경로 처리', value=arg['jav_uncensored_companion_use_separate_path'], desc=['On: 자막이 포함된 영상은 아래에 지정된 별도 경로로 분리합니다.', 'Off: 자막이 있더라도 메타 검색 결과에 따라 일반 영상과 동일한 경로로 이동합니다.']) }}
+    <div id="jav_uncensored_companion_use_separate_path_div" class="collapse">
+      {{ macros.setting_input_text('jav_uncensored_companion_path', '동반자막 기본 경로', value=arg['jav_uncensored_companion_path'], desc=['메타 매칭 성공 여부와 무관하게 자막 포함 영상이 이동할 경로입니다.', '폴더 구조는 전역 기본 폴더 구조를 따릅니다.']) }}
+      {{ macros.setting_input_text('jav_uncensored_companion_meta_fail_path', '동반자막 메타 실패 경로', value=arg['jav_uncensored_companion_meta_fail_path'], desc=['(예외옵션) 메타 매칭에 실패한 동반자막 영상만 따로 분리할 경로입니다.', '비워두면 위 기본 경로를 따릅니다.']) }}
+    </div>
 
   {{ macros.m_tab_content_end() }}  
 
@@ -116,6 +128,15 @@ $(document).ready(function(){
   use_collapse("jav_uncensored_include_original_filename");
   use_meta("{{arg['jav_uncensored_use_meta']}}");
   use_collapse("jav_uncensored_meta_no_move");
+  use_collapse("jav_uncensored_companion_enable");
+  use_collapse("jav_uncensored_companion_use_separate_path");
+});
+
+$('#jav_uncensored_companion_enable').change(function() {
+  use_collapse('jav_uncensored_companion_enable');
+});
+$('#jav_uncensored_companion_use_separate_path').change(function() {
+  use_collapse('jav_uncensored_companion_use_separate_path');
 });
 
 $('#jav_uncensored_include_original_filename').change(function() {
