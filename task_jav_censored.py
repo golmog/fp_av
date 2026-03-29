@@ -892,7 +892,7 @@ class Task:
             # VR 처리
             if meta_info:
                 vr_path_setting = config.get('VR영상이동폴더', '').strip()
-                vr_genres = ["VR専用", "ハイクオリティVR", "VR", "Virtual Reality"]
+                vr_genres = ["VR専用", "ハイクオリティVR", "VR", "Virtual Reality", "8KVR", "4KVR"]
                 original_data = meta_info.get('original')
                 genres_to_check = ((original_data.get('genre') if isinstance(original_data, dict) else meta_info.get('genre')) or [])
                 if vr_path_setting and any(x in genres_to_check for x in vr_genres):
