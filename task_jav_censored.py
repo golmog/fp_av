@@ -197,7 +197,7 @@ class Task:
             return
 
         # 2. 파싱 및 기본 정보 추출
-        logger.debug(f"파싱 및 기본 정보 추출")
+        logger.info(f"파싱 및 기본 정보 추출")
         parsed_infos = []
         unparsed_infos = []
         for file in all_files:
@@ -209,12 +209,12 @@ class Task:
 
         # 2-1. 파싱 실패 파일 처리
         if unparsed_infos:
-            logger.debug(f"파싱 실패 파일 {len(unparsed_infos)}개 이동 시작")
+            logger.info(f"파싱 실패 파일 {len(unparsed_infos)}개 이동 시작")
             for info in unparsed_infos:
                 Task.__move_to_no_label_folder(config, info['original_file'])
 
         if not parsed_infos:
-            logger.debug("파싱에 성공한 파일이 없어 작업을 종료합니다.")
+            logger.info("파싱에 성공한 파일이 없어 작업을 종료합니다.")
             return
 
         # 3. 실행 계획 수립 (페어링)
@@ -1134,7 +1134,31 @@ class Task:
             logger.debug(f"'{pure_code}' 그룹 처리 시작 ({len(group_infos)}개 파일)")
 
             first_info = group_infos[0]
+            
+            # 메타 검색 (그룹당 1회)
             _, _, meta_info_for_group = Task._get_final_target_path(config, first_info, task_context, do_meta_search=True)
+
+            # 메타데이터 품번 동기화
+            if meta_info_for_group and meta_info_for_group.get('originaltitle'):
+                meta_code_raw = meta_info_for_group['originaltitle']
+                meta_code_lower = meta_code_raw.lower()
+                
+                if pure_code != meta_code_lower:
+                    if '-' in meta_code_lower:
+                        meta_label, meta_number = meta_code_lower.rsplit('-', 1)
+                    else:
+                        meta_label, meta_number = meta_code_lower, ""
+
+                    for info in group_infos:
+                        info['pure_code'] = meta_code_lower
+                        info['label'] = meta_label
+                        info['number'] = meta_number 
+                        
+                        from .tool import ToolExpandFileProcess
+                        new_assembled_name = ToolExpandFileProcess.assemble_filename(config, info)
+                        info['newfilename'] = new_assembled_name
+                        
+                    logger.info(f"메타 품번 동기화: '{pure_code}' -> '{meta_code_lower}'")
 
             processed_dirs_for_group = set()
 

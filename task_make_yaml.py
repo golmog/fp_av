@@ -152,7 +152,11 @@ class Task:
             return
 
         # 1. 파일명 결정
-        code_name = (info.get('originaltitle') or info.get('sorttitle') or info.get('code', 'movie')).lower()
+        code_name = (info.get('pure_code') or info.get('originaltitle') or info.get('sorttitle') or info.get('code', 'movie')).lower()
+        if is_code_folder is None:
+            current_folder_name = os.path.basename(folder_path).lower()
+            is_code_folder = current_folder_name.replace('-', '') == code_name.replace('-', '')
+        
         if is_code_folder is None:
             current_folder_name = os.path.basename(folder_path).lower()
             is_code_folder = current_folder_name.replace('-', '') == code_name.replace('-', '')
@@ -162,7 +166,7 @@ class Task:
 
         filepath_yaml = os.path.join(folder_path, f'{prefix}.yaml')
         filepath_nfo = os.path.join(folder_path, f'{prefix}.nfo')
-        filepath_json = os.path.join(folder_path, f'{code_name}.json') # JSON은 항상 품번.json
+        filepath_json = os.path.join(folder_path, f'{code_name}.json') 
         
         # 이미지 파일명 (Plex 에이전트 표준: 품번 폴더가 아니면 품번-poster.jpg 형태)
         img_prefix = '' if is_code_folder else f'{code_name}-'

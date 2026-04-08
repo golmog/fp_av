@@ -38,15 +38,16 @@ class ToolExpandFileProcess:
 
         subtitle_exts = subtitle_exts or set()
         # iterate depth=1 items only
+        logger.info(f"전처리: 비어있거나 유효한 파일이 없는 오래된 폴더를 삭제합니다.")
         for child in path.iterdir():
-            try: # 개별 파일/폴더 처리 중 에러가 발생해도 전체 작업이 중단되지 않도록 try-except 추가
+            try:
                 if child.stat().st_mtime < time.time() - max_age:
                     # old enough
                     if child.is_dir() and not list(cls._iterdir(child, min_size=min_size, subtitle_exts=subtitle_exts)):
-                        logger.debug(f"전처리: 비어있거나 유효한 파일이 없는 오래된 폴더를 삭제합니다: {child}")
+                        logger.debug(f"폴더 삭제: {child}")
                         shutil.rmtree(child)
                     elif child.is_file() and not cls._is_legit_file(child, min_size=min_size, subtitle_exts=subtitle_exts):
-                        logger.debug(f"전처리: 작거나 유효하지 않은 오래된 파일을 삭제합니다: {child}")
+                        logger.debug(f"파일 삭제: {child}")
                         child.unlink()
             except Exception as e:
                 logger.warning(f"전처리 중 '{child}' 처리 실패: {e}")
@@ -136,12 +137,10 @@ class ToolExpandFileProcess:
         base, ext = os.path.splitext(original_filename)
 
         try:
-            # 전처리
             cleaned_base = cls._preprocess_base(base, cleanup_list=cleanup_list)
             parsed_code, remaining_part = None, ""
             search_label = None
 
-            # 품번 추출
             if parsing_rules:
                 special_key = f"{mode}_special_rules"
                 special_rules = parsing_rules.get(special_key, [])
@@ -164,9 +163,11 @@ class ToolExpandFileProcess:
 
                 code_part = f"{label_part}-{number_part_processed}" if number_part_processed else label_part
 
+                base_search_label = search_label if search_label else label_part
+                
                 search_keyword = None
-                if search_label:
-                    search_keyword = f"{search_label}-{number_part_processed}" if number_part_processed else search_label
+                if base_search_label:
+                    search_keyword = f"{base_search_label}-{number_part_raw}" if number_part_raw else base_search_label
 
                 return {
                     'code': code_part,
@@ -251,7 +252,7 @@ class ToolExpandFileProcess:
                 match = re.match(pattern, base, re.I)
                 if match:
                     # logger.debug(f"      - 매칭 성공! 그룹: {match.groups()}")
-                    groups = match.groups()
+                    groups = tuple("" if g is None else g for g in match.groups())
                     label_part, num_part = "", ""
                     search_label = None
 
