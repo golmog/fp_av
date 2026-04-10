@@ -192,41 +192,31 @@ class ToolExpandFileProcess:
     @classmethod
     def _preprocess_base(cls, base, cleanup_list=None):
         """파일명(base)에서 일반적인 노이즈를 제거합니다."""
-        base = base.lower() # 모든 처리는 소문자 기준으로
+        base = base.lower()
 
-        # 사용자 정의 목록을 사용하여 1차 정리
         if cleanup_list:
-            # 정규식 특수문자를 이스케이프하고, 긴 키워드가 먼저 처리되도록 정렬
             sorted_list = sorted([re.escape(kw.strip()) for kw in cleanup_list if kw.strip()], key=len, reverse=True)
             if sorted_list:
-                # 모든 키워드를 | 로 연결하여 하나의 정규식 패턴 생성
                 pattern = '|'.join(sorted_list)
-                # \b(키워드1|키워드2|...)\b 와 같은 형태로 단어 단위로만 치환
                 base = re.sub(r'\b(' + pattern + r')\b', ' ', base, flags=re.I)
 
-        # 괄호를 공백으로 변환하고, 연속된 공백을 하나로 합침
         base = re.sub(r'[\[\]\(\)]+', ' ', base)
         base = re.sub(r'\s+', ' ', base).strip()
-
-        # 웹사이트 주소 제거 (앞에 다른 문자가 있어도 처리)
-        tlds = 'cc|cn|com|net|me|org|xyz|vip|tv|la'
-        base = re.sub(r'[\w.-]+\.(%s)[-@_ ]' % tlds, '', base).strip()
-
-        # DMM 접두사 제거
         base = re.sub(r'^[hn]_\d', '', base, flags=re.I)
 
-        # 화질/코덱 등 '명백한' 접미사 제거
+        tlds = 'cc|cn|com|net|me|org|xyz|vip|tv|la'
+        base = re.sub(r'[\w.-]+\.(%s)[-@_ ]' % tlds, ' ', base).strip()
+
         misc_suffixes = r'[-_. ](720p|1080p|2160p|2k|4k|8k|sd|fhd|uhd|hq|uhq|h264|h265|hevc)'
         combined_pattern = r'(%s)?$' % (misc_suffixes)
-        base = re.sub(combined_pattern, '', base, flags=re.I)
+        base = re.sub(combined_pattern, ' ', base, flags=re.I)
 
-        # DMM 전용 'rz' 접미사 제거
-        base = re.sub(r'[rz]$', '', base, flags=re.I)
+        base = re.sub(r'-?\d+kbps', ' ', base)
+        base = re.sub(r'[-_. ](part|pt|cd)[-_. ]\d[-_. ]', ' ', base)
+        base = re.sub(r'[rsz]$', '', base, flags=re.I)
 
-        # 최종적으로 앞뒤의 불필요한 구분 기호 제거
         base = base.strip(' ._-')
 
-        # logger.debug(f"- 전처리 후 base: {base}")
         return base
 
 
