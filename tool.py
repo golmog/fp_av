@@ -200,22 +200,24 @@ class ToolExpandFileProcess:
                 pattern = '|'.join(sorted_list)
                 base = re.sub(r'\b(' + pattern + r')\b', ' ', base, flags=re.I)
 
-        base = re.sub(r'[\[\]\(\)]+', ' ', base)
-        base = re.sub(r'\s+', ' ', base).strip()
+        base = re.sub(r'\(\d{6,}\)', ' ', base)
+        base = re.sub(r'[\[\]\(\)\{\}]+', ' ', base)
         base = re.sub(r'^[hn]_\d', '', base, flags=re.I)
 
-        tlds = 'cc|cn|com|net|me|org|xyz|vip|tv|la'
+        tlds = 'cc|cn|com|net|me|org|xyz|vip|tv|la|info|link|online|site|top|io|gg'
         base = re.sub(r'[\w.-]+\.(%s)[-@_ ]' % tlds, ' ', base).strip()
 
-        misc_suffixes = r'[-_. ](720p|1080p|2160p|2k|4k|8k|sd|fhd|uhd|hq|uhq|h264|h265|hevc)'
-        combined_pattern = r'(%s)?$' % (misc_suffixes)
-        base = re.sub(combined_pattern, ' ', base, flags=re.I)
+        misc_pattern = r'(?:hd)?720p|(?:fhd)?1080p|2160p|2k|4k|6k|8k|fhd|uhd|'
+        misc_pattern += r'h264|h265|hevc|x265|mpeg|wmv[0-9]?|rv(?:[0-9]{,2})?|'
+        misc_pattern += r'aac|dts|mp3|ogg|flac|wav|wma(?:pro|v\d)?|pcm(?:_s16le)?|ac3|eac3|'
+        misc_pattern += r'\d+[.0-9]*fps|\d+kbps|'
+        misc_pattern += r'\d{3,}x\d{3,}|\dk[0-9.]+fps'
+        base = re.sub(r'\b[-_. ]?(%s)[-_. ]?\b' % misc_pattern, ' ', base).strip()
 
-        base = re.sub(r'-?\d+kbps', ' ', base)
-        base = re.sub(r'[-_. ](part|pt|cd)[-_. ]\d[-_. ]', ' ', base)
-        base = re.sub(r'[rsz]$', '', base, flags=re.I)
-
-        base = base.strip(' ._-')
+        base = re.sub(r'\b[-_. ]?(part|pt|cd)[-_. ]?\d{,2}$', '', base)
+        base = re.sub(r'[rsz]$', '', base)
+        
+        base = re.sub(r'\s+', ' ', base).strip(' ._-')
 
         return base
 
