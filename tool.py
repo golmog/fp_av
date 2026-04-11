@@ -168,6 +168,8 @@ class ToolExpandFileProcess:
                 search_keyword = None
                 if base_search_label:
                     search_keyword = f"{base_search_label}-{number_part_raw}" if number_part_raw else base_search_label
+                
+                label_part = re.sub(r'^0+', '', label_part)
 
                 return {
                     'code': code_part,
