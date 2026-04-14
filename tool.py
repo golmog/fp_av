@@ -200,18 +200,18 @@ class ToolExpandFileProcess:
             sorted_list = sorted([re.escape(kw.strip()) for kw in cleanup_list if kw.strip()], key=len, reverse=True)
             if sorted_list:
                 pattern = '|'.join(sorted_list)
-                base = re.sub(r'\b(' + pattern + r')\b', ' ', base, flags=re.I)
+                base = re.sub(r'\b[-@_. ]?(' + pattern + r')[-@_. ]?\b', ' ', base, flags=re.I)
 
         base = re.sub(r'\(\d{6,}\)', ' ', base)
         base = re.sub(r'[\[\]\(\)\{\}]+', ' ', base)
         base = re.sub(r'^[hn]_\d', '', base, flags=re.I)
 
         tlds = 'cc|cn|com|net|me|org|xyz|vip|tv|la|info|link|online|site|top|io|gg'
-        base = re.sub(r'[\w.-]+\.(%s)[-@_ ]' % tlds, ' ', base).strip()
+        base = re.sub(r'[\w.-]+\.(%s)[-@_. ]' % tlds, ' ', base).strip()
 
         misc_pattern = r'(?:hd)?720p|(?:fhd)?1080p|2160p|2k|4k|6k|8k|fhd|uhd|'
         misc_pattern += r'h264|h265|hevc|x265|mpeg|wmv[0-9]?|rv(?:[0-9]{,2})?|'
-        misc_pattern += r'aac|dts|mp3|ogg|flac|wav|wma(?:pro|v\d)?|pcm(?:_s16le)?|ac3|eac3|'
+        misc_pattern += r'aac|dts|mp3|ogg|flac|wav|wma(?:pro|v\d)?|pcm(?:_s16le)?|ac3|eac3|vorbis|opus|'
         misc_pattern += r'\d+[.0-9]*fps|\d+kbps|'
         misc_pattern += r'\d{3,}x\d{3,}|\dk[0-9.]+fps'
         base = re.sub(r'\b[-_. ]?(%s)[-_. ]?\b' % misc_pattern, ' ', base).strip()
