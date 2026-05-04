@@ -205,7 +205,12 @@ class Task:
         
         is_meta_success = (meta_info is not None) if use_meta_option == 'using' else True
         
-        # --- 2. 기본 경로 결정 ---
+        # --- 2. 커스텀 룰 사전 탐색 ---
+        matched_custom_rule = None
+        if config.get('커스텀경로활성화', False):
+            matched_custom_rule = CensoredTask._find_and_merge_custom_path_rules(info, config.get('커스텀경로규칙', []), meta_info)
+
+        # --- 3. 기본 경로 및 타입 결정 ---
         if is_meta_success:
             if use_meta_option == 'using':
                 final_path_str = config.get('메타매칭시이동폴더')
@@ -220,22 +225,20 @@ class Task:
                 final_move_type = "normal"
         else:
             if config.get('메타매칭실패시이동', False):
-                final_path_str = config.get('메타매칭실패시이동폴더')
+                # 1순위: 커스텀 규칙의 실패 경로
+                custom_meta_fail_path = matched_custom_rule.get('메타매칭실패시이동폴더') if matched_custom_rule else None
+                if custom_meta_fail_path:
+                    final_path_str = custom_meta_fail_path
+                else:
+                    final_path_str = config.get('메타매칭실패시이동폴더')
+                
                 final_move_type = "meta_fail"
                 is_failed_move = True
             else:
                 return None, "meta_fail_skipped", meta_info
 
-        # --- 3. 오버라이드 룰 확인 및 병합 ---
-        
-        # 3-1. 커스텀 룰 사전 확인
-        matched_custom_rule = None
-        if config.get('커스텀경로활성화', False):
-            matched_custom_rule = CensoredTask._find_and_merge_custom_path_rules(info, config.get('커스텀경로규칙', []), meta_info)
-            if matched_custom_rule and not (is_meta_success or matched_custom_rule.get('force_on_meta_fail') or matched_custom_rule.get('메타실패시강제적용')):
-                matched_custom_rule = None
-
-        # 3-2. 동반 자막 처리
+        # --- 4. 오버라이드 룰 확인 및 병합 ---
+        # 4-1. 동반 자막 처리
         if is_companion_pair:
             comp_path = ""
             comp_format = ""
@@ -247,7 +250,7 @@ class Task:
                 if not comp_path:
                     comp_path = matched_custom_rule.get('동반자막처리경로')
                 comp_format = matched_custom_rule.get('동반자막처리폴더포맷')
-                if comp_path: use_separate_path = True 
+                if comp_path: use_separate_path = True
 
             if use_separate_path and not comp_path:
                 if not is_meta_success:
@@ -259,29 +262,30 @@ class Task:
                 comp_format = config.get('동반자막처리폴더포맷', '')
 
             if use_separate_path and not comp_path:
-                logger.warning(f"동반자막 별도 경로가 설정되어 있지 않아 기본 경로를 따릅니다.")
                 use_separate_path = False
 
             if use_separate_path and comp_path: 
                 final_path_str = comp_path
                 final_move_type = 'companion_kor'
-                is_failed_move = False
-                
+                is_failed_move = False 
+            
             if use_separate_path and comp_format: 
                 final_format_str = comp_format
 
-        # 3-3. 일반 커스텀 경로
+        # 4-2. 일반 커스텀 경로 (동반 자막이 아닐 때)
         elif matched_custom_rule:
-            custom_path = matched_custom_rule.get('path') or matched_custom_rule.get('경로', '')
-            if custom_path: 
-                final_path_str = custom_path
-                final_move_type = 'custom_path'
-                is_failed_move = False
+            if is_meta_success or matched_custom_rule.get('force_on_meta_fail') or matched_custom_rule.get('메타실패시강제적용'):
+                custom_path = matched_custom_rule.get('path') or matched_custom_rule.get('경로', '')
+                if custom_path: 
+                    final_path_str = custom_path
+                    final_move_type = 'custom_path'
+                    is_failed_move = False
+            
             custom_format = matched_custom_rule.get('format') or matched_custom_rule.get('폴더포맷', '')
             if custom_format: 
                 final_format_str = custom_format
 
-        # 3-4. 자막 우선 처리
+        # 4-3. 자막 우선 처리
         elif not is_companion_pair and sub_config.get('처리활성화', False):
             is_applicable = False
             rule = sub_config.get('규칙', {})
@@ -301,7 +305,7 @@ class Task:
                     final_move_type = 'subbed'
                     is_failed_move = False
         
-        # --- 4. 최종 경로 조립 ---
+        # --- 5. 최종 경로 조립 ---
         if not final_path_str:
             return None, final_move_type, meta_info
 
