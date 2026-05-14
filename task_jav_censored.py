@@ -878,6 +878,8 @@ class Task:
         matched_custom_rule = None
         if config.get('커스텀경로활성화', False):
             matched_custom_rule = Task._find_and_merge_custom_path_rules(info, config.get('커스텀경로규칙', []), meta_info)
+            if matched_custom_rule and not (is_meta_success or matched_custom_rule.get('force_on_meta_fail') or matched_custom_rule.get('메타실패시강제적용')):
+                matched_custom_rule = None
 
         # --- 3. 기본 경로 및 타입 결정 ---
         if is_meta_success:
@@ -909,12 +911,10 @@ class Task:
         else: 
             # 메타 실패 처리
             if config.get('메타매칭실패시이동', False):
-                # 1순위: 커스텀 규칙의 실패 전용 경로
                 custom_meta_fail_path = matched_custom_rule.get('메타매칭실패시이동폴더') if matched_custom_rule else None
                 if custom_meta_fail_path:
                     final_path_str = custom_meta_fail_path
                 else:
-                    # 2순위: 전역 설정 실패 경로
                     final_path_str = config.get('메타매칭실패시이동폴더')
                 
                 final_move_type = "meta_fail"
@@ -925,6 +925,7 @@ class Task:
         # --- 4. 오버라이드 룰 확인 및 병합 ---
         # 4-1. 동반 자막 처리
         if is_companion_pair:
+            companion_config = config.get('동반자막처리', {})
             comp_path = ""
             comp_format = ""
             use_separate_path = config.get('동반자막경로별도처리', False)
@@ -953,23 +954,32 @@ class Task:
                 final_path_str = comp_path
                 final_move_type = 'companion_kor'
                 is_failed_move = False 
-            
-            if use_separate_path and comp_format: 
-                final_format_str = comp_format
+                
+                if comp_format: 
+                    final_format_str = comp_format
+                else:
+                    if '{' in comp_path:
+                        final_format_str = ""
 
         # 4-2. 일반 커스텀 경로 (동반 자막이 아닐 때)
         elif matched_custom_rule:
             if is_meta_success or matched_custom_rule.get('force_on_meta_fail') or matched_custom_rule.get('메타실패시강제적용'):
                 custom_path = matched_custom_rule.get('path') or matched_custom_rule.get('경로', '')
+                custom_format = matched_custom_rule.get('format') or matched_custom_rule.get('폴더포맷', '')
+                
                 if custom_path: 
                     final_path_str = custom_path
                     final_move_type = 'custom_path'
-                    is_failed_move = False # 정상 경로로 취급
-            
-            # 포맷(format)은 성공/실패 여부와 관계없이 커스텀 룰에 명시되어 있다면 적용
-            custom_format = matched_custom_rule.get('format') or matched_custom_rule.get('폴더포맷', '')
-            if custom_format: 
-                final_format_str = custom_format
+                    is_failed_move = False
+                    
+                    if custom_format: 
+                        final_format_str = custom_format
+                    else:
+                        if '{' in custom_path:
+                            final_format_str = ""
+                else:
+                    if custom_format: 
+                        final_format_str = custom_format
 
         # 4-3. 자막 우선 처리
         elif not is_companion_pair and sub_config.get('처리활성화', False):
@@ -997,11 +1007,9 @@ class Task:
 
         base_path, path_template = Task._resolve_path_template(config, info, meta_info, final_path_str)
 
-        # 포맷 확정 (실패 시 초기화)
         if is_failed_move:
             final_format_str = ""
         
-        # 포맷과 템플릿 결합
         if path_template and final_format_str:
             final_format_str = f"{path_template.rstrip('/')}/{final_format_str.lstrip('/')}"
         elif path_template:
@@ -1009,7 +1017,6 @@ class Task:
         elif final_format_str:
             final_format_str = final_format_str
 
-        # is_code_folder 검사
         if final_format_str:
             last_segment = final_format_str.split('/')[-1].lower()
             code_tags = ['{code}', '{code_lower}', '{code_upper}']

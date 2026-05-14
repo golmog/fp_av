@@ -225,7 +225,6 @@ class Task:
                 final_move_type = "normal"
         else:
             if config.get('메타매칭실패시이동', False):
-                # 1순위: 커스텀 규칙의 실패 경로
                 custom_meta_fail_path = matched_custom_rule.get('메타매칭실패시이동폴더') if matched_custom_rule else None
                 if custom_meta_fail_path:
                     final_path_str = custom_meta_fail_path
@@ -240,6 +239,7 @@ class Task:
         # --- 4. 오버라이드 룰 확인 및 병합 ---
         # 4-1. 동반 자막 처리
         if is_companion_pair:
+            companion_config = config.get('동반자막처리', {})
             comp_path = ""
             comp_format = ""
             use_separate_path = config.get('동반자막경로별도처리', False)
@@ -268,22 +268,32 @@ class Task:
                 final_path_str = comp_path
                 final_move_type = 'companion_kor'
                 is_failed_move = False 
-            
-            if use_separate_path and comp_format: 
-                final_format_str = comp_format
+                
+                if comp_format: 
+                    final_format_str = comp_format
+                else:
+                    if '{' in comp_path:
+                        final_format_str = ""
 
         # 4-2. 일반 커스텀 경로 (동반 자막이 아닐 때)
         elif matched_custom_rule:
             if is_meta_success or matched_custom_rule.get('force_on_meta_fail') or matched_custom_rule.get('메타실패시강제적용'):
                 custom_path = matched_custom_rule.get('path') or matched_custom_rule.get('경로', '')
+                custom_format = matched_custom_rule.get('format') or matched_custom_rule.get('폴더포맷', '')
+                
                 if custom_path: 
                     final_path_str = custom_path
                     final_move_type = 'custom_path'
                     is_failed_move = False
-            
-            custom_format = matched_custom_rule.get('format') or matched_custom_rule.get('폴더포맷', '')
-            if custom_format: 
-                final_format_str = custom_format
+                    
+                    if custom_format: 
+                        final_format_str = custom_format
+                    else:
+                        if '{' in custom_path:
+                            final_format_str = ""
+                else:
+                    if custom_format: 
+                        final_format_str = custom_format
 
         # 4-3. 자막 우선 처리
         elif not is_companion_pair and sub_config.get('처리활성화', False):

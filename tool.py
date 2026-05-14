@@ -366,25 +366,36 @@ class ToolExpandFileProcess:
             logger.debug(f"이미 처리된 파일 형식입니다: {info['original_file'].name}")
 
             if use_media_info and ext_config.get('enable_reprocessing', True):
+                
+                # 1. 스킵 패턴 확인
                 skip_pattern = ext_config.get('reprocess_skip_pattern')
                 if skip_pattern and re.search(skip_pattern, original_filename_stem, re.IGNORECASE):
-                    logger.debug(" -> 미디어 정보가 이미 포함되어 있어 건너뜁니다.")
+                    logger.debug(" -> 스킵 패턴에 일치하여 건너뜁니다.")
                     return info['original_file'].name
 
+                # 2. 미디어 정보 문자열 조립
                 media_info_str = ""
                 media_info_to_use = info.get('final_media_info')
                 if media_info_to_use and media_info_to_use.get('is_valid', True):
                     template = ext_config.get('media_info_template', '')
                     media_info_str = cls._format_conditional_template(template, media_info_to_use)
 
+                # 3. 중복 검사 및 삽입
                 if media_info_str:
                     insert_pattern = ext_config.get('reprocess_insert_pattern')
                     if insert_pattern:
                         match = re.match(insert_pattern, original_filename_stem)
                         if match:
-                            logger.debug(" -> 기존 파일명에 미디어 정보를 동적 삽입합니다.")
                             base, prefix, suffix = match.groups()
-                            final_base = f"{base}{prefix}{media_info_str} {suffix.lstrip()}"
+                            suffix = suffix.lstrip()
+
+                            if suffix.startswith(media_info_str):
+                                # logger.debug(f" -> 미디어 정보가 삽입될 위치에 이미 존재합니다. (중복 방지)")
+                                return info['original_file'].name
+                            
+                            # 중복이 아니라고 판단되면 삽입 진행
+                            logger.debug(" -> 기존 파일명에 미디어 정보를 동적 삽입합니다.")
+                            final_base = f"{base}{prefix}{media_info_str} {suffix}"
                             return f"{final_base}{info['ext']}"
 
             return info['original_file'].name
