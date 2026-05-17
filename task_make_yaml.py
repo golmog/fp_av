@@ -343,10 +343,10 @@ class Task:
                 with open(filepath, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
                         f.write(chunk)
-            logger.debug(f"파일 다운로드 성공: {filepath}")
+            logger.debug(f"다운로드 성공: {filepath}")
             return True
         except Exception as e:
-            logger.error(f"파일 다운로드 실패: {filename} - {str(e)}")
+            logger.error(f"다운로드 실패: {filename} - {str(e)}")
             return False
 
 

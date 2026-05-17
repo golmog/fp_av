@@ -1210,22 +1210,58 @@ class Task:
                         logger.warning(f"'{info['original_file'].name}'의 이동 경로를 결정할 수 없어 건너뜁니다. (이동 타입: {move_type})")
                         continue
                     
+                    any_meta_option_on = any([
+                        config.get('부가파일생성_YAML', False),
+                        config.get('부가파일생성_NFO', False),
+                        config.get('부가파일생성_JSON', False),
+                        config.get('부가파일생성_IMAGE', False),
+                        config.get('부가파일생성_TRAILER', False)
+                    ])
+
+                    current_target_dir_str = str(target_dir)
+                    info['should_create_meta'] = False
+                    
+                    if not config.get('드라이런', False) and \
+                       (current_target_dir_str not in processed_dirs_for_group) and \
+                       (move_type not in failed_types) and \
+                       any_meta_option_on:
+                        
+                        info['should_create_meta'] = True
+                        processed_dirs_for_group.add(current_target_dir_str)
+
                     info.update({'target_dir': target_dir, 'move_type': move_type, 'meta_info': meta_info_for_group})
                     
-                    # 부가파일 생성 여부 플래그 결정
-                    current_target_dir = str(target_dir)
-                    if current_target_dir not in processed_dirs_for_group:
-                        info['should_create_meta'] = True
-                        processed_dirs_for_group.add(current_target_dir)
-                    else:
-                        info['should_create_meta'] = False
-
-                    # 스캔 대기열 추가 로직
-                    current_target_dir = target_dir
-                    if scan_enabled and current_target_dir is not None:
+                    if scan_enabled and target_dir is not None:
                         if move_type in valid_scan_types and move_type not in failed_types:
-                            scan_queue.add(current_target_dir)
-                    
+                            scan_queue.add(target_dir)
+
+                    # 사전 부가 파일 생성
+                    if not config.get('드라이런', False):
+                        target_dir.mkdir(parents=True, exist_ok=True)
+                        
+                        if info['should_create_meta'] and meta_info_for_group:
+                            logger.info(f"부가 파일 사전 생성 중...: {target_dir}")
+                            printable_meta_info = meta_info_for_group.copy()
+                            printable_meta_info.pop('original', None)
+                            
+                            try:
+                                TaskMakeYaml.make_files(
+                                    printable_meta_info,
+                                    current_target_dir_str,
+                                    make_yaml=config.get('부가파일생성_YAML', False),
+                                    make_nfo=config.get('부가파일생성_NFO', False),
+                                    make_json=config.get('부가파일생성_JSON', False),
+                                    make_image=config.get('부가파일생성_IMAGE', False),
+                                    make_trailer=config.get('부가파일생성_TRAILER', False),
+                                    make_overwrite=config.get('부가파일_덮어쓰기', False),
+                                    include_media_path=config.get('부가파일미디어경로포함', False),
+                                    is_code_folder=info.get('is_code_folder', False)
+                                )
+                            except Exception as meta_e:
+                                logger.error(f"부가 파일 생성 중 오류: {meta_e}")
+                                logger.error(traceback.format_exc())
+
+                    # 본 영상 이동
                     entity = Task.__file_move_logic(config, info, db_model)
                     
                     if entity or config.get('드라이런', False):
@@ -1235,10 +1271,10 @@ class Task:
                             else:
                                 continue
 
+                        # 동반 자막 처리
                         if 'companion_subs_list' in info:
                             for s_info in info['companion_subs_list']:
                                 sub_ext = s_info['original_file'].suffix
-                                
                                 logger.info(f"{log_prefix} 동반 자막: {s_info['original_file'].name}")
                                 
                                 new_video_stem = Path(info['newfilename']).stem
@@ -1247,7 +1283,6 @@ class Task:
                                 
                                 final_sub_name = new_video_stem
                                 
-                                # 한국어 자막이거나 판별하지 않았을 경우에만 언어코드 추가
                                 if s_info.get('is_korean', True):
                                     if config.get('동반자막언어코드추가', True) and not re.search(r'\.(ko|kr|kor)$', new_video_stem, re.I):
                                         final_sub_name += '.ko'
@@ -1366,30 +1401,12 @@ class Task:
         # 3. 최종 라이브러리로 이동
         if file.exists():
             try:
-                # 3a. 파일 이동
-                target_dir.mkdir(parents=True, exist_ok=True)
+                # 파일 이동
+                target_dir.mkdir(parents=True, exist_ok=True) 
                 shutil.move(file, newfile)
                 logger.info(f"파일 이동 성공: -> {newfile}")
 
-                # 3b. 부가 파일 생성 (이동 성공 후)
-                if meta_info and info.get('should_create_meta', False):
-                    printable_meta_info = meta_info.copy()
-                    printable_meta_info.pop('original', None)
-                    
-                    TaskMakeYaml.make_files(
-                        printable_meta_info,
-                        str(newfile.parent),
-                        make_yaml=config.get('부가파일생성_YAML', False),
-                        make_nfo=config.get('부가파일생성_NFO', False),
-                        make_json=config.get('부가파일생성_JSON', False),
-                        make_image=config.get('부가파일생성_IMAGE', False),
-                        make_trailer=config.get('부가파일생성_TRAILER', False),
-                        make_overwrite=config.get('부가파일덮어쓰기', False),
-                        include_media_path=config.get('부가파일미디어경로포함', False),
-                        is_code_folder=info.get('is_code_folder', False)
-                    )
-
-                # 3c. 방송 처리 (이동 성공 후)
+                # 방송 처리 (이동 성공 후)
                 if config.get('방송', False):
                     gds_path_str = str(newfile)
                     replace_rules = config.get('방송경로변환')
@@ -1398,7 +1415,7 @@ class Task:
                         for src, tgt in replace_rules.items():
                             if src in gds_path_str:
                                 gds_path_str = gds_path_str.replace(src, tgt)
-                                break # 보통 한 번만 변환하면 되므로 break (필요시 제거)
+                                break
 
                     bot = {
                         't1': 'gds_tool', 't2': 'fp', 't3': 'av',
