@@ -42,6 +42,20 @@ setting = {
                 ]
             },
             {
+                'uri': 'western',
+                'name': 'Western',
+                'list': [
+                    {
+                        'uri': 'setting',
+                        'name': '설정',
+                    },
+                    {
+                        'uri': 'list',
+                        'name': '처리결과',
+                    },
+                ]
+            },
+            {
                 'uri': 'jav_censored_yaml',
                 'name': 'Jav Censored Yaml',
                 'list': [
@@ -69,6 +83,20 @@ setting = {
                 ]
             },
             {
+                'uri': 'western_yaml',
+                'name': 'Western Yaml',
+                'list': [
+                    {
+                        'uri': 'setting',
+                        'name': '설정',
+                    },
+                    {
+                        'uri': 'files/western_yaml.md',
+                        'name': '매뉴얼',
+                    },
+                ]
+            },
+            {
                 'uri': 'manual',
                 'name': 'ChangeLog',
                 'list': [
@@ -91,9 +119,11 @@ PLUGIN_ROOT = os.path.dirname(__file__)
 try:
     from .mod_jav_censored import ModuleJavCensored
     from .mod_jav_uncensored import ModuleJavUncensored
+    from .mod_western import ModuleWestern
     from .mod_jav_censored_yaml import ModuleJavCensoredYaml
     from .mod_jav_uncensored_yaml import ModuleJavUncensoredYaml
-    P.set_module_list([ModuleJavCensored, ModuleJavUncensored, ModuleJavCensoredYaml, ModuleJavUncensoredYaml])
+    from .mod_western_yaml import ModuleWesternYaml
+    P.set_module_list([ModuleJavCensored, ModuleJavUncensored, ModuleWestern, ModuleJavCensoredYaml, ModuleJavUncensoredYaml, ModuleWesternYaml])
 except Exception as e:
     P.logger.error(f'Exception:{str(e)}')
     P.logger.error(traceback.format_exc())

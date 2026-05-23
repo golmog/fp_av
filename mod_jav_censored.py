@@ -42,6 +42,7 @@ class ModuleJavCensored(PluginModuleBase):
             f"{self.name}_meta_dvd_labels_exclude": "",
             f"{self.name}_meta_dvd_labels_include": "",
             f"{self.name}_meta_no_path": "",
+            f"{self.name}_meta_no_scan_include": "False",
             f"{self.name}_meta_no_retry_every": "0",
             f"{self.name}_meta_no_last_retry": "1970-01-01T00:00:00",
             f"{self.name}_meta_no_move": "False",

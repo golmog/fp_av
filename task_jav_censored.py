@@ -13,7 +13,7 @@ from datetime import datetime
 from collections import defaultdict
 
 ModelSetting = P.ModelSetting
-from .tool import ToolExpandFileProcess, UtilFunc, SafeFormatter
+from .tool import ToolExpandFileProcess, UtilFunc, SafeFormatter, ToolExpandFileProcess
 from .model_jav_censored import ModelJavCensoredItem
 from support import SupportYaml, SupportUtil, SupportDiscord
 from .task_make_yaml import Task as TaskMakeYaml
@@ -64,6 +64,7 @@ class TaskBase:
             "메타매칭실패시이동": ModelSetting.get_bool("jav_censored_meta_no_move"),
             "메타매칭실패시파일명변경": ModelSetting.get_bool("jav_censored_meta_no_change_filename"),
             "메타매칭실패시이동폴더": ModelSetting.get("jav_censored_meta_no_path").strip(),
+            "매칭실패이동후스캔": ModelSetting.get_bool("jav_censored_meta_no_scan_include"),
 
             # "재시도": True, # 죽은 설정?
             "방송": False,
@@ -629,6 +630,8 @@ class Task:
             temp_path = Path(temp_path_str)
 
         src_list = Task.get_path_list(config['다운로드폴더'])
+
+        # 주기적 재시도
         src_list.extend(Task.__add_meta_no_path(module_name))
 
         all_files = []
@@ -1125,9 +1128,9 @@ class Task:
         valid_scan_types = {
             'dvd', 'normal', 'subbed', 'custom_path', 
             'companion_kor', 'companion_kor_sub',
-            'meta_success', 'vr'
+            'meta_success', 'vr', 'featurette_video'
         }
-        if config.get('scan_with_no_meta', True):
+        if config.get('매칭실패이동후스캔', False):
             valid_scan_types.update(['no_meta', 'meta_fail'])
         
         # 실패 타입 명시적 정의 (안전장치)
@@ -1308,6 +1311,8 @@ class Task:
             for path in sorted_scan_paths:
                 Task.__request_plex_mate_scan(config, path)
                 time.sleep(2)
+
+        logger.info("fp_av_jav_censored: 모든 작업이 완료되었습니다.")
 
 
     @staticmethod
@@ -1514,65 +1519,141 @@ class Task:
         if not folder_format:
             return []
 
-        # 1. 사용할 기본 정보(base_label, number_part_raw) 추출
+        # 사용할 기본 정보(base_label, number_part_raw) 추출
+        is_western = config.get('parse_mode') == 'western'
+        safe_fn = ToolExpandFileProcess.get_safe_filename
+
         base_label = ""
         number_part_raw = ""
         data = {}
+        data['filename'] = info['original_file'].stem
 
         if meta_data and isinstance(meta_data, dict):
-            original_title = meta_data.get("originaltitle", "")
-            code_parts = original_title.split('-', 1)
-            base_label = code_parts[0]
-            number_part_raw = code_parts[1] if len(code_parts) > 1 else ''
+            if is_western:
+                title_str = safe_fn(meta_data.get("originaltitle", ""))
+                studio_str = safe_fn(meta_data.get("studio") or info.get('studio', 'NO_STUDIO'))
+                code_str = safe_fn(info['original_file'].stem)
+                base_label = studio_str 
+            else:
+                original_title = safe_fn(meta_data.get("originaltitle", ""))
+                code_parts = original_title.split('-', 1)
+                base_label = code_parts[0]
+                studio_str = safe_fn(meta_data.get("studio") or "NO_STUDIO")
+                title_str = safe_fn(meta_data.get("title", original_title))
+                code_str = original_title
+            
             actor_list = meta_data.get('actor') or []
-            actor_names = [actor.get('name', '') for actor in actor_list[:3] if actor.get('name')]
+            actor_names = [safe_fn(actor.get('name', '')) for actor in actor_list[:3] if actor.get('name')]
             year_str = str(meta_data.get("year")) if meta_data.get("year") is not None else ""
-            studio_str = meta_data.get("studio") or "NO_STUDIO"
+            
             data.update({
                 "studio": studio_str,
-                "code": original_title,
+                "code": code_str, 
+                "title": title_str, 
                 "actor": f"{','.join(actor_names[:1])}",
                 "actor_2": f"{','.join(actor_names[:2])}",
                 "actor_3": f"{','.join(actor_names[:3])}",
                 "year": year_str,
             })
         else:
-            base_label = info['label']
-            number_part_raw = info.get('number', '')
-            data.update({
-                "code": info['pure_code'].upper(),
-                "year": "", "actor": "", "studio": base_label.upper()
-            })
+            base_label = safe_fn(info.get('label', ''))
+            title_str = safe_fn(info['original_file'].stem)
+            
+            if is_western:
+                data.update({
+                    "code": title_str, 
+                    "title": title_str,
+                    "year": "", "actor": "", 
+                    "studio": safe_fn(info.get('studio', base_label))
+                })
+            else:
+                data.update({
+                    "code": safe_fn(info.get('pure_code', '').upper()),
+                    "title": title_str,
+                    "year": "", "actor": "", "studio": base_label.upper()
+                })
 
         label_1 = '#'
+        studio_1 = '#'
+        title_1 = '#'
+        filename_1 = '#'
+        actor_1 = '#'
+        
         processed_label = base_label
+        processed_studio = data.get('studio', '')
+        processed_title = data.get('title', '')
+        processed_filename = data.get('filename', '')
+        processed_actor = data.get('actor', '').split(',')[0].strip()
 
+        # label_1 처리
         if base_label:
-            if base_label[0].isdigit():
-                allowed_regex = config.get('허용된숫자레이블')
-                if allowed_regex and re.match(allowed_regex, base_label, re.IGNORECASE):
-                    label_1 = "09"
-                    processed_label = base_label
-                else:
-                    first_alpha_match = re.search(r'[a-zA-Z]', base_label)
-                    if first_alpha_match:
-                        label_1 = first_alpha_match.group(0).upper()
-                        processed_label = base_label[first_alpha_match.start():]
-                    else:
-                        processed_label = base_label
-            else:
-                label_1 = base_label[0].upper()
+            if is_western:
                 processed_label = base_label
+                label_1 = base_label[0].upper() if base_label[0].isalpha() else '#'
+            else:
+                # JAV 특화 로직 (숫자 레이블 등)
+                if base_label[0].isdigit():
+                    allowed_regex = config.get('허용된숫자레이블')
+                    if allowed_regex and re.match(allowed_regex, base_label, re.IGNORECASE):
+                        label_1 = "09"
+                        processed_label = base_label
+                    else:
+                        first_alpha_match = re.search(r'[a-zA-Z]', base_label)
+                        if first_alpha_match:
+                            label_1 = first_alpha_match.group(0).upper()
+                            processed_label = base_label[first_alpha_match.start():]
+                        else:
+                            processed_label = base_label
+                else:
+                    label_1 = base_label[0].upper()
+                    processed_label = base_label
 
-        data['label_1'] = label_1
-        data['label'] = processed_label.upper()
-        data['label_lower'] = processed_label.lower()
-        data['code_lower'] = data['code'].lower()
-        if "studio" not in (meta_data or {}):
-            data['studio'] = processed_label.upper()
-            data['studio_lower'] = processed_label.lower()
+        # studio_1 처리 (순수 알파벳 첫 글자 추출)
+        if processed_studio:
+            match = re.search(r'[a-zA-Z]', processed_studio)
+            studio_1 = match.group(0).upper() if match else '#'
 
-        # 3. {num_X_Y}, {year4} 등 추가 변수 처리
+        # title_1 처리 (순수 알파벳 첫 글자 추출)
+        if processed_title:
+            match = re.search(r'[a-zA-Z]', processed_title)
+            title_1 = match.group(0).upper() if match else '#'
+
+        # filename_1 처리 (원본 파일명의 첫 알파벳)
+        if processed_filename:
+            match = re.search(r'[a-zA-Z]', processed_filename)
+            filename_1 = match.group(0).upper() if match else '#'
+
+        # actor_1 처리 (첫 번째 배우의 첫 알파벳)
+        if processed_actor:
+            match = re.search(r'[a-zA-Z가-힣]', processed_actor) # 한글 초성도 원한다면 포함 가능하나 영문 위주로 처리
+            # 영문만 원한다면 r'[a-zA-Z]' 유지
+            actor_1 = match.group(0).upper() if match else '#'
+
+        # 딕셔너리에 업데이트
+        data.update({
+            'label_1': label_1,
+            'studio_1': studio_1,
+            'title_1': title_1,
+            'filename_1': filename_1,
+            'actor_1': actor_1
+        })
+
+        if is_western:
+            data['label'] = processed_label
+            data['label_lower'] = processed_label.lower()
+            data['code_lower'] = data['code'].lower()
+            if "studio" not in (meta_data or {}):
+                data['studio'] = processed_label
+                data['studio_lower'] = processed_label.lower()
+        else:
+            data['label'] = processed_label.upper()
+            data['label_lower'] = processed_label.lower()
+            data['code_lower'] = data['code'].lower()
+            if "studio" not in (meta_data or {}):
+                data['studio'] = processed_label.upper()
+                data['studio_lower'] = processed_label.lower()
+
+        # {num_X_Y}, {year4} 등 추가 변수 처리
         try:
             if '{' in folder_format and number_part_raw:
                 main_number_part = re.split(r'[-_\s]', number_part_raw, 1)[0]
@@ -1594,7 +1675,7 @@ class Task:
         except Exception as e:
             logger.error(f"폴더 포맷 변수 처리 중 오류: {e}")
 
-        # 4. 안전한 포맷팅 및 후처리
+        # 안전한 포맷팅 및 후처리
         safe_fmt = SafeFormatter()
         folders = safe_fmt.format(folder_format, **data)
         # 포맷팅 후에도 남아있는 {태그} 제거
@@ -1711,13 +1792,21 @@ class Task:
         has_any_match = False
 
         original_filename = info['original_file'].name
-        label_to_check = info['label'].lower()
         actors_to_check = []
         studio_to_check = ""
+        
+        is_western = 'studio' in info and info['studio'] == info['label']
+        label_to_check = info['label'].lower()
 
         if meta_info:
-            if meta_info.get("originaltitle"):
-                label_to_check = meta_info.get("originaltitle").split('-')[0].lower()
+            if is_western:
+                # 서양은 메타데이터의 'studio' 값을 무조건 커스텀 룰 매칭용 레이블로 씁니다.
+                if meta_info.get("studio"):
+                    label_to_check = meta_info.get("studio").lower()
+            else:
+                if meta_info.get("originaltitle"):
+                    label_to_check = meta_info.get("originaltitle").split('-')[0].lower()
+            
             if meta_info.get("actor"):
                 actors_to_check = [a.get('name', '').strip() for a in (meta_info.get('actor') or []) if a.get('name', '').strip()]
             if meta_info.get("studio"):
@@ -1730,6 +1819,8 @@ class Task:
             filename_pattern = rule.get('filename_pattern') or rule.get('파일명패턴')
             if filename_pattern:
                 try:
+                    filename_pattern = re.sub(r'[\r\n]+', '', filename_pattern)
+                    
                     if re.search(filename_pattern, original_filename, re.IGNORECASE):
                         is_match = True
                         logger.debug(f"커스텀 패턴 매칭: '{rule_name}' (파일명패턴)")
@@ -1740,6 +1831,8 @@ class Task:
             label_pattern = rule.get('label_pattern') or rule.get('레이블')
             if not is_match and label_pattern and label_to_check:
                 try:
+                    label_pattern = re.sub(r'\s+', '', label_pattern)
+                    
                     if re.fullmatch(label_pattern, label_to_check, re.IGNORECASE):
                         is_match = True
                         logger.debug(f"커스텀 패턴 매칭: '{rule_name}' (레이블: {label_to_check})")
@@ -1750,6 +1843,8 @@ class Task:
             actor_pattern = rule.get('actor_pattern') or rule.get('배우')
             if not is_match and actor_pattern and actors_to_check:
                 try:
+                    actor_pattern = re.sub(r'[\r\n]+', '', actor_pattern)
+                    
                     if any(re.search(actor_pattern, actor_name, re.IGNORECASE) for actor_name in actors_to_check):
                         is_match = True
                         matched_actors = [name for name in actors_to_check if re.search(actor_pattern, name, re.IGNORECASE)]
@@ -1760,6 +1855,7 @@ class Task:
             studio_pattern = rule.get('studio_pattern') or rule.get('스튜디오')
             if not is_match and studio_pattern and studio_to_check:
                 try:
+                    studio_pattern = re.sub(r'\s+', '', studio_pattern)
                     if re.search(studio_pattern, studio_to_check, re.IGNORECASE):
                         is_match = True
                         logger.debug(f"커스텀 경로 패턴 매칭: '{rule_name}' (스튜디오: {studio_to_check})")

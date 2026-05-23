@@ -83,6 +83,8 @@
       <div id="jav_uncensored_meta_no_move_div" class="collapse">
         {{ macros.setting_input_text_and_buttons('jav_uncensored_meta_no_path', '매칭 실패 시 이동 경로', [['jav_uncensored_meta_no_path_start_btn', '즉시 처리 시도']], value=arg['jav_uncensored_meta_no_path'], desc=['메타 검색을 시도했으나 실패한 파일이 이동할 경로입니다.', '비워두면 \'처리 실패시 이동 경로\' 아래 [NO META] 폴더로 이동합니다.']) }}
 
+        {{ macros.setting_checkbox('jav_uncensored_meta_no_scan_include', '매칭 실패 파일 이동 후 PLEX 스캔', value=arg['jav_uncensored_meta_no_scan_include'], desc=['On: 메타 매칭에 실패하여 [실패 경로]로 파일이 이동되었을 때도, 해당 폴더에 대해 PLEX MATE 스캔 요청을 보냅니다.', 'Off: 메타 매칭에 실패한 영상은 PLEX 라이브러리에 바로 추가되지 않도록 스캔 요청을 생략합니다. (기본값)']) }}
+
         {{ macros.setting_checkbox('jav_uncensored_meta_no_change_filename', '매칭 실패 영상 이동 시 파일명 변경', value=arg['jav_uncensored_meta_no_change_filename'], desc=['On: 품번 기반으로 파일명을 변경하여 이동합니다.', 'Off: 원본 파일명 그대로 이동합니다.']) }}
 
         {{ macros.setting_input_int('jav_uncensored_meta_no_retry_every', '매칭 실패 영상 재시도 주기 (일)', value=arg['jav_uncensored_meta_no_retry_every'], min='0', placeholder='0', desc='매칭 실패로 분류된 영상을 주기적으로 재시도합니다. 0이면 재시도 안 함. 주기: 일') }}
