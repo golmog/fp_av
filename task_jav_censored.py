@@ -1519,14 +1519,14 @@ class Task:
         if not folder_format:
             return []
 
-        # 사용할 기본 정보(base_label, number_part_raw) 추출
         is_western = config.get('parse_mode') == 'western'
         safe_fn = ToolExpandFileProcess.get_safe_filename
 
-        base_label = ""
-        number_part_raw = ""
         data = {}
         data['filename'] = info['original_file'].stem
+
+        base_label = ""
+        number_part_raw = ""
 
         if meta_data and isinstance(meta_data, dict):
             if is_western:
@@ -1538,6 +1538,13 @@ class Task:
                 original_title = safe_fn(meta_data.get("originaltitle", ""))
                 code_parts = original_title.split('-', 1)
                 base_label = code_parts[0]
+
+                if len(code_parts) > 1:
+                    number_part_raw = code_parts[1]
+                else:
+                    num_match = re.search(r'\d+', original_title)
+                    number_part_raw = num_match.group(0) if num_match else ''
+
                 studio_str = safe_fn(meta_data.get("studio") or "NO_STUDIO")
                 title_str = safe_fn(meta_data.get("title", original_title))
                 code_str = original_title
@@ -1557,6 +1564,12 @@ class Task:
             })
         else:
             base_label = safe_fn(info.get('label', ''))
+            
+            number_part_raw = info.get('number', '')
+            if not number_part_raw:
+                num_match = re.search(r'\d+', info.get('pure_code', ''))
+                number_part_raw = num_match.group(0) if num_match else ''
+
             title_str = safe_fn(info['original_file'].stem)
             
             if is_western:
