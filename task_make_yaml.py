@@ -147,40 +147,55 @@ class Task:
         return
 
 
-    def make_files(info, folder_path, make_yaml=False, make_nfo=False, make_json=False, make_image=False, make_trailer=False, make_overwrite=False, include_media_path=False, is_code_folder=None):
+    def make_files(info, folder_path, make_yaml=True, make_nfo=True, make_json=False, make_image=True, make_trailer=False, make_overwrite=False, include_media_path=False, is_code_folder=None, module_name='jav', original_filename=None):
+        
         if not any([make_yaml, make_nfo, make_json, make_image, make_trailer]):
             return
 
-        # 1. 파일명 결정
-        code_name = (info.get('pure_code') or info.get('originaltitle') or info.get('sorttitle') or info.get('code', 'movie')).lower()
-        if is_code_folder is None:
-            current_folder_name = os.path.basename(folder_path).lower()
-            is_code_folder = current_folder_name.replace('-', '') == code_name.replace('-', '')
-        
-        if is_code_folder is None:
-            current_folder_name = os.path.basename(folder_path).lower()
-            is_code_folder = current_folder_name.replace('-', '') == code_name.replace('-', '')
-        
-        prefix = 'movie' if is_code_folder else code_name
-        # logger.debug(f"부가파일 생성 시작: [코드:{code_name}] [폴더명:{os.path.basename(folder_path)}] [코드폴더여부:{is_code_folder}]")
+        # 기본 식별자(Identifier) 결정
+        if module_name == 'western' and original_filename:
+            # 서양 모듈의 기본 식별자는 원본 영상 파일명
+            identifier = original_filename
+        else:
+            # JAV 모듈의 기본 식별자는 품번
+            identifier = (info.get('pure_code') or info.get('originaltitle') or info.get('sorttitle') or info.get('code', 'movie')).lower()
 
+        # 전용 폴더(is_code_folder) 여부
+        if is_code_folder is None:
+            current_folder_name = os.path.basename(folder_path).lower()
+            if module_name == 'western':
+                title_for_check = (info.get('title') or identifier).lower()
+                is_code_folder = (current_folder_name == identifier.lower()) or (current_folder_name == title_for_check)
+            else:
+                is_code_folder = current_folder_name.replace('-', '') == identifier.replace('-', '')
+
+        # 전용 폴더면 'movie', 아니면 식별자(파일명 또는 품번) 사용
+        prefix = 'movie' if is_code_folder else identifier
+
+        logger.debug(f"부가파일 생성: [모듈:{module_name}] [식별자:{identifier}] [프리픽스:{prefix}] [전용폴더:{is_code_folder}]")
+
+        # YAML, NFO는 결정된 prefix에 따름
         filepath_yaml = os.path.join(folder_path, f'{prefix}.yaml')
         filepath_nfo = os.path.join(folder_path, f'{prefix}.nfo')
-        filepath_json = os.path.join(folder_path, f'{code_name}.json') 
         
-        # 이미지 파일명 (Plex 에이전트 표준: 품번 폴더가 아니면 품번-poster.jpg 형태)
-        img_prefix = '' if is_code_folder else f'{code_name}-'
+        # JSON은 항상 고유 식별자 사용
+        filepath_json = os.path.join(folder_path, f'{identifier}.json')
+        
+        # 이미지/트레일러
+        # 전용 폴더면 poster.jpg, 아니면 식별자-poster.jpg
+        img_prefix = '' if is_code_folder else f'{identifier}-'
+
         filepath_poster = os.path.join(folder_path, f'{img_prefix}poster.jpg')
         filepath_fanart = os.path.join(folder_path, f'{img_prefix}fanart.jpg')
         filepath_trailer = os.path.join(folder_path, f'{img_prefix}movie-trailer.mp4')
-        
-        # 2. 공용 데이터 추출 함수 (리스트/단일객체 모두 대응)
+
+        # 공용 데이터 추출 함수 (리스트/단일객체 모두 대응)
         def get_as_list(data, key):
             v = data.get(key, [])
             if v is None: return []
             return v if isinstance(v, list) else [v]
 
-        # 3. 데이터 가공 및 정제
+        # 데이터 가공 및 정제
         info_for_files = info.copy()
 
         # [공용 변수 준비] 
@@ -217,7 +232,7 @@ class Task:
             info_for_files.pop('fanart', None)
             info_for_files.pop('extras', None)
 
-        # 4. 이미지/트레일러 물리 파일 저장 (개선된 로직 + 덮어쓰기 적용)
+        # 이미지/트레일러 물리 파일 저장 (개선된 로직 + 덮어쓰기 적용)
         if make_image:
             poster_url = next((t['value'] for t in get_as_list(info, 'thumb') if isinstance(t, dict) and t.get('aspect') == 'poster'), None)
             
@@ -241,7 +256,7 @@ class Task:
                 else:
                     logger.debug(f"이미 존재함 (건너뜀): {os.path.basename(filepath_fanart)}")
             
-        # 5. 트레일러 물리 파일 저장
+        # 트레일러 물리 파일 저장
         if make_trailer:
             trailer_url = next((e['content_url'] for e in get_as_list(info, 'extras') if isinstance(e, dict) and e.get('content_type') == 'trailer'), None)
 
@@ -337,16 +352,33 @@ class Task:
     def file_save(url, filepath, proxy_url=None):
         filename = os.path.basename(filepath)
         try:
+            logger.debug(f"파일 다운로드 시도: {filename} <- {url}")
             proxies = {"http": proxy_url, "https": proxy_url} if proxy_url else {}
-            with requests.get(url, stream=True, proxies=proxies) as r:
+            
+            headers = {
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
+                'Accept-Encoding': 'gzip, deflate, br',
+                'Accept-Language': 'ko-KR,ko;q=0.9,en-US;q=0.8,en;q=0.7',
+                'Referer': url.split('/', 3)[0] + '//' + url.split('/')[2] 
+            }
+
+            # stream=True 유지 (대용량 영상 다운로드용)
+            with requests.get(url, stream=True, proxies=proxies, headers=headers, verify=False, timeout=60) as r:
                 r.raise_for_status()
                 with open(filepath, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):
-                        f.write(chunk)
-            logger.debug(f"다운로드 성공: {filepath}")
+                        if chunk:
+                            f.write(chunk)
+            
+            logger.debug(f"파일 다운로드 성공: {filename}")
             return True
+            
+        except requests.exceptions.ConnectionError as ce:
+            logger.error(f"서버 연결 끊김 (방화벽/봇 차단 의심): {filename} - {str(ce)}")
+            return False
         except Exception as e:
-            logger.error(f"다운로드 실패: {filename} - {str(e)}")
+            logger.error(f"파일 다운로드 실패: {filename} - {str(e)}")
             return False
 
 

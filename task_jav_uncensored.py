@@ -56,6 +56,7 @@ class TaskBase:
             "메타매칭실패시이동": ModelSetting.get_bool("jav_uncensored_meta_no_move"),
             "메타매칭시이동폴더": ModelSetting.get("jav_uncensored_meta_path").strip(),
             "메타매칭실패시이동폴더": ModelSetting.get("jav_uncensored_meta_no_path").strip(),
+            "매칭실패이동후스캔": ModelSetting.get_bool("jav_uncensored_meta_no_scan_include"),
             "메타매칭실패시파일명변경": ModelSetting.get_bool("jav_uncensored_meta_no_change_filename"),
             "매칭실패재시도주기": ModelSetting.get_int("jav_uncensored_meta_no_retry_every"),
             "라이브러리폴더": ModelSetting.get("jav_uncensored_target_path").splitlines(),
@@ -402,9 +403,9 @@ class Task:
         valid_scan_types = {
             'dvd', 'normal', 'subbed', 'custom_path', 
             'companion_kor', 'companion_kor_sub',
-            'meta_success'
+            'meta_success', 'vr', 'featurette_video'
         }
-        if config.get('scan_with_no_meta', True):
+        if config.get('매칭실패이동후스캔', False):
             valid_scan_types.update(['no_meta', 'meta_fail'])
         
         # 실패 타입 명시적 정의 (안전장치)
@@ -560,4 +561,6 @@ class Task:
             for path in sorted_scan_paths:
                 CensoredTask.__request_plex_mate_scan(config, path)
                 time.sleep(2)
+
+        logger.info("fp_av_jav_uncensored: 모든 작업이 완료되었습니다.")
 

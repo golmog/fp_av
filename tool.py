@@ -312,6 +312,76 @@ class ToolExpandFileProcess:
         return None, ""
 
 
+    @classmethod
+    def init_western_info(cls, original_filename, cleanup_pattern="", featurette_pattern=""):
+        if not original_filename or not isinstance(original_filename, str):
+            return None
+
+        base, ext = os.path.splitext(original_filename)
+        clean_base = base
+
+        if cleanup_pattern:
+            try:
+                clean_base = re.sub(cleanup_pattern, '', clean_base, flags=re.IGNORECASE).strip()
+            except re.error as e:
+                logger.error(f"Western 검색 키워드 정제 정규식 오류: {e}")
+        else:
+            clean_base = re.sub(r'\[.*?\]$', '', clean_base).strip()
+
+        is_featurette = False
+        if featurette_pattern:
+            try:
+                f_match = re.search(featurette_pattern, clean_base, re.IGNORECASE)
+                if f_match:
+                    is_featurette = True
+                    clean_base = clean_base[:f_match.start()]
+            except re.error as e:
+                logger.error(f"Western 부가 영상 인식 정규식 오류: {e}")
+
+        def pascal_case_preserve(text):
+            words = re.split(r'[\'-]', text)
+            result_words = []
+            for w in words:
+                if not w: continue
+                result_words.append(w[0].upper() + w[1:])
+            
+            return "".join(result_words)
+
+        # 스튜디오 추출
+        split_match = re.split(r'[\.\s_]+', clean_base, 1)
+        raw_studio = split_match[0] if split_match else clean_base
+        clean_studio = pascal_case_preserve(raw_studio)
+
+        return {
+            'code': base,               
+            'pure_code': clean_base,
+            'label': clean_studio,           
+            'studio': clean_studio,          
+            'title': clean_base,
+            'number': '',
+            'raw_number': '',
+            'ext': ext,
+            'search_keyword': clean_base,
+            'is_featurette': is_featurette,
+        }
+
+
+    @staticmethod
+    def get_safe_filename(text):
+        if not text:
+            return ""
+        
+        text = text.replace(':', ' -')
+        text = text.replace('/', '_')
+        text = text.replace('\\', '_')
+        text = text.replace('"', "'")
+        
+        text = re.sub(r'[*?<>|]', '', text)
+        
+        # 3. 양끝 공백 정리
+        return text.strip()
+
+
     ##########################
     # advanced naming process
     ##########################
@@ -454,6 +524,7 @@ class ToolExpandFileProcess:
 
         part = info.get('parsed_part_type', '')
         final_stem = f"{final_base}{part}"
+        final_stem = cls.get_safe_filename(final_stem)
 
         return f"{final_stem}{info['ext']}"
 
