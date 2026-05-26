@@ -507,7 +507,7 @@ class Task:
                                     make_json=config.get('부가파일생성_JSON', False),
                                     make_image=config.get('부가파일생성_IMAGE', False),
                                     make_trailer=config.get('부가파일생성_TRAILER', False),
-                                    make_overwrite=config.get('부가파일_덮어쓰기', False),
+                                    make_overwrite=config.get('부가파일덮어쓰기', False),
                                     include_media_path=config.get('부가파일미디어경로포함', False),
                                     is_code_folder=info.get('is_code_folder', False)
                                 )
