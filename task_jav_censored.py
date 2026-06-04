@@ -1826,55 +1826,67 @@ class Task:
                 studio_to_check = meta_info.get("studio").strip()
 
         for rule in rules_list:
-            is_match = False
             rule_name = rule.get('name') or rule.get('이름', '이름 없는 규칙')
-
+            is_and_condition = rule.get('다중조건매칭', False)
             filename_pattern = rule.get('filename_pattern') or rule.get('파일명패턴')
-            if filename_pattern:
-                try:
-                    filename_pattern = re.sub(r'[\r\n]+', '', filename_pattern)
-                    
-                    if re.search(filename_pattern, original_filename, re.IGNORECASE):
-                        is_match = True
-                        logger.debug(f"커스텀 패턴 매칭: '{rule_name}' (파일명패턴)")
-                except re.error as e:
-                    logger.error(f"커스텀 경로 패턴 '{rule_name}'의 파일명 정규식 오류: {e}")
-                    continue
-
             label_pattern = rule.get('label_pattern') or rule.get('레이블')
-            if not is_match and label_pattern and label_to_check:
-                try:
-                    label_pattern = re.sub(r'\s+', '', label_pattern)
-                    
-                    if re.fullmatch(label_pattern, label_to_check, re.IGNORECASE):
-                        is_match = True
-                        logger.debug(f"커스텀 패턴 매칭: '{rule_name}' (레이블: {label_to_check})")
-                except re.error as e:
-                    logger.error(f"커스텀 경로 패턴 '{rule_name}'의 레이블 정규식 오류: {e}")
-                    continue
-
             actor_pattern = rule.get('actor_pattern') or rule.get('배우')
-            if not is_match and actor_pattern and actors_to_check:
-                try:
-                    actor_pattern = re.sub(r'[\r\n]+', '', actor_pattern)
-                    
-                    if any(re.search(actor_pattern, actor_name, re.IGNORECASE) for actor_name in actors_to_check):
-                        is_match = True
-                        matched_actors = [name for name in actors_to_check if re.search(actor_pattern, name, re.IGNORECASE)]
-                        logger.debug(f"커스텀 경로 패턴 매칭: '{rule_name}' (배우: {matched_actors})")
-                except re.error as e:
-                    logger.error(f"커스텀 경로 패턴 '{rule_name}'의 배우 정규식 오류: {e}")
-
             studio_pattern = rule.get('studio_pattern') or rule.get('스튜디오')
-            if not is_match and studio_pattern and studio_to_check:
-                try:
-                    studio_pattern = re.sub(r'\s+', '', studio_pattern)
-                    if re.search(studio_pattern, studio_to_check, re.IGNORECASE):
-                        is_match = True
-                        logger.debug(f"커스텀 경로 패턴 매칭: '{rule_name}' (스튜디오: {studio_to_check})")
-                except re.error as e:
-                    logger.error(f"커스텀 경로 패턴 '{rule_name}'의 스튜디오 정규식 오류: {e}")
 
+            if filename_pattern: filename_pattern = re.sub(r'[\r\n]+', '', filename_pattern)
+            if label_pattern: label_pattern = re.sub(r'\s+', '', label_pattern)
+            if actor_pattern: actor_pattern = re.sub(r'[\r\n]+', '', actor_pattern)
+            if studio_pattern: studio_pattern = re.sub(r'\s+', '', studio_pattern)
+
+            # 각 패턴의 매칭 여부를 저장할 딕셔너리 (패턴이 없으면 True로 간주하여 AND 조건 우회)
+            match_results = {
+                'filename': True if not filename_pattern else False,
+                'label': True if not label_pattern else False,
+                'actor': True if not actor_pattern else False,
+                'studio': True if not studio_pattern else False
+            }
+
+            try:
+                if filename_pattern and re.search(filename_pattern, original_filename, re.IGNORECASE):
+                    match_results['filename'] = True
+                    logger.debug(f"[{rule_name}] 파일명 매칭 성공")
+
+                if label_pattern and label_to_check and re.fullmatch(label_pattern, label_to_check, re.IGNORECASE):
+                    match_results['label'] = True
+                    logger.debug(f"[{rule_name}] 레이블 매칭 성공")
+
+                if actor_pattern and actors_to_check and any(re.search(actor_pattern, a, re.IGNORECASE) for a in actors_to_check):
+                    match_results['actor'] = True
+                    logger.debug(f"[{rule_name}] 배우 매칭 성공")
+
+                if studio_pattern and studio_to_check and re.search(studio_pattern, studio_to_check, re.IGNORECASE):
+                    match_results['studio'] = True
+                    logger.debug(f"[{rule_name}] 스튜디오 매칭 성공")
+                    
+            except re.error as e:
+                logger.error(f"[{rule_name}] 정규식 오류: {e}")
+                continue
+
+            # --- 최종 적용 여부 판단 ---
+            is_match = False
+            
+            has_any_pattern = bool(filename_pattern or label_pattern or actor_pattern or studio_pattern)
+            if not has_any_pattern:
+                continue
+
+            if is_and_condition:
+                # [AND] 정의된 모든 패턴이 True여야 함
+                is_match = all(match_results.values())
+            else:
+                # [OR] (기존 방식) 정의된 패턴 중 하나라도 매칭되면,
+                is_match = any([
+                    (filename_pattern and match_results['filename']),
+                    (label_pattern and match_results['label']),
+                    (actor_pattern and match_results['actor']),
+                    (studio_pattern and match_results['studio'])
+                ])
+
+            # --- 규칙 병합 ---
             if is_match:
                 has_any_match = True
                 for key, value in rule.items():
