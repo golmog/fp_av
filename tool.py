@@ -214,9 +214,9 @@ class ToolExpandFileProcess:
         misc_pattern += r'aac|dts|mp3|ogg|flac|wav|wma(?:pro|v\d)?|pcm(?:_s16le)?|ac3|eac3|vorbis|opus|'
         misc_pattern += r'\d+[.0-9]*fps|\d+kbps|'
         misc_pattern += r'\d{3,}x\d{3,}|\dk[0-9.]+fps'
-        base = re.sub(r'[-@_. ]?(%s)[-@_. ]?' % misc_pattern, ' ', base).strip()
+        base = re.sub(r'[\-@_,. \[\{\(](%s)[\-@_,. \]\}\)]' % misc_pattern, ' ', base).strip()
 
-        base = re.sub(r'[-@_. ]?(part|pt|cd)[-@_. ]?\d{,2}$', '', base)
+        base = re.sub(r'[\-@_,. \[\{\(](%s)[\-@_,. \]\}\)0-9](part|pt|cd)[-@_. ]?\d{,2}$', '', base)
         base = re.sub(r'[rsz]$', '', base)
         
         base = re.sub(r'\s+', ' ', base).strip(' ._-')
@@ -313,6 +313,23 @@ class ToolExpandFileProcess:
 
 
     @classmethod
+    def pascal_case_preserve(cls, text):
+        """
+        하이픈(-)과 어포스트로피(')를 기준으로 단어를 쪼갠 뒤,
+        각 단어의 첫 글자를 대문자로 만들고(나머지는 보존) 다시 합칩니다.
+        """
+        if not text:
+            return ""
+        words = re.split(r'[\'-]', text)
+        result_words = []
+        for w in words:
+            if not w: continue
+            result_words.append(w[0].upper() + w[1:])
+        
+        return "".join(result_words)
+
+
+    @classmethod
     def init_western_info(cls, original_filename, cleanup_pattern="", featurette_pattern=""):
         if not original_filename or not isinstance(original_filename, str):
             return None
@@ -350,7 +367,8 @@ class ToolExpandFileProcess:
         # 스튜디오 추출
         split_match = re.split(r'[\.\s_]+', clean_base, 1)
         raw_studio = split_match[0] if split_match else clean_base
-        clean_studio = pascal_case_preserve(raw_studio)
+        raw_studio = re.sub(r'[\(\)\[\]\{\}]', '', raw_studio)
+        clean_studio = cls.pascal_case_preserve(raw_studio)
 
         return {
             'code': base,               
@@ -380,6 +398,60 @@ class ToolExpandFileProcess:
         
         # 3. 양끝 공백 정리
         return text.strip()
+
+    @staticmethod
+    def pair_companion_subtitles(videos, subtitles, config):
+        """
+        동반 자막 처리 공통 함수
+        """
+        unmatched_subs = []
+        subtitle_exts = config.get('subtitle_exts', set())
+        can_detect_korean = config.get('동반자막한국어자막판별', False)
+        
+        if can_detect_korean:
+            UtilFunc._initialize_chardet()
+
+        for s_info in subtitles:
+            found_pair = False
+            
+            s_info['is_korean'] = True 
+            if can_detect_korean:
+                if not UtilFunc.is_korean_subtitle(s_info['original_file'], config):
+                    s_info['is_korean'] = False
+            
+            sub_name = s_info['original_file'].name
+            
+            for v_info in sorted(videos, key=lambda x: len(x['original_file'].name), reverse=True):
+                video_stem = v_info['original_file'].stem
+                
+                if sub_name.startswith(video_stem):
+                    remainder = sub_name[len(video_stem):].lower()
+                    
+                    is_valid_tail = False
+                    for ext in subtitle_exts:
+                        if remainder == ext: 
+                            is_valid_tail = True
+                            break
+                        elif re.match(r'^\.[a-z]{2,3}' + re.escape(ext) + r'$', remainder):
+                            is_valid_tail = True
+                            break
+
+                    if is_valid_tail:
+                        if 'companion_subs_list' not in v_info:
+                            v_info['companion_subs_list'] = []
+                        
+                        current_ext = s_info['original_file'].suffix.lower()
+                        has_same_ext = any(exist_sub['original_file'].suffix.lower() == current_ext for exist_sub in v_info['companion_subs_list'])
+                        
+                        if not has_same_ext:
+                            v_info['companion_subs_list'].append(s_info)
+                            found_pair = True
+                            break 
+            
+            if not found_pair:
+                unmatched_subs.append(s_info)
+                
+        return videos, unmatched_subs
 
 
     ##########################
@@ -669,7 +741,6 @@ class UtilFunc:
 
     @staticmethod
     def _initialize_chardet():
-        """chardet 라이브러리를 임포트하고, 실패 시 pip을 통해 자동으로 설치를 시도합니다."""
         if UtilFunc._CHARDET_INSTALLED is not None:
             return UtilFunc._CHARDET_INSTALLED
 
@@ -731,27 +802,22 @@ class UtilFunc:
     @staticmethod
     def is_duplicate(src: Path, dst: Path, config: dict) -> bool:
         """설정에 따라 파일의 중복 여부를 결정합니다."""
-
         if not dst.parent.is_dir():
             return False
 
         method = config.get('중복체크방식', 'flexible')
 
-        # --- 1. 가장 엄격한 방식: 파일명과 크기가 모두 동일해야 함 ---
         if method == "strict":
             if dst.exists():
                 return src.stat().st_size == dst.stat().st_size
             return False
 
-        # --- 2. 파일명만으로 체크 ---
         elif method == "filename_only":
             return dst.exists()
 
-        # --- 3. 유연한 방식 (기본값): 파일명이 같거나, 또는 크기가 같으면 중복 ---
         else: # "flexible"
             if dst.exists():
                 return True
-            # 대상 폴더 파일들의 크기 집합을 미리 생성
             bytes_in_dst = {f.stat().st_size for f in dst.parent.iterdir() if f.is_file()}
             return src.stat().st_size in bytes_in_dst
 

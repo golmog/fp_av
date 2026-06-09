@@ -44,6 +44,15 @@
 
   {{ macros.m_tab_content_start('filename', false) }}
     {{ macros.setting_checkbox('western_rename_from_folder', '서브 폴더명으로 파일명 변경', value=arg['western_rename_from_folder'], desc=['On: 다운로드 폴더 내의 하위 폴더에 영상 파일이 단 1개만 존재할 경우, 영상 파일의 이름을 해당 폴더의 이름으로 자동 변경합니다.', '서양 영상 다운로드 시 파일명이 축약되어 있는 문제를 해결하고 메타데이터 검색 성공률을 높이는 데 유용합니다.', '예: FolderName/short_name.mp4 -> FolderName/FolderName.mp4']) }}
+    
+    {{ macros.m_hr() }}
+    {{ macros.setting_checkbox('western_companion_enable', '동반자막 처리', value=arg['western_companion_enable'], desc=['On: 영상과 같은 이름의 자막 파일이 존재하면 파일명 변경 시 영상과 이름을 동기화하고 함께 처리합니다.']) }}
+    
+    <div id="western_companion_enable_div" class="collapse">
+      {{ macros.setting_checkbox('western_companion_add_ko', '언어코드(.ko) 추가', value=arg['western_companion_add_ko'], desc=['On: 자막 파일 끝에 한국어 언어코드(.ko)를 자동으로 추가합니다.']) }}
+      {{ macros.setting_checkbox('western_companion_detect_kor', '한국어 자막 판별', value=arg['western_companion_detect_kor'], desc=['On: 파일 내용을 분석하여 한국어가 없는 경우 언어코드를 붙이지 않습니다.', '주의: 서식이 많은 ass 자막 등은 오인식 확률이 높습니다. chardet 라이브러리가 필요합니다.']) }}
+    </div>
+
   {{ macros.m_tab_content_end() }}
 
   {{ macros.m_tab_content_start('folders', false) }}

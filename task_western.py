@@ -256,36 +256,37 @@ class Task:
             failed_path_str = config.get('처리실패이동폴더', '').strip()
             if failed_path_str:
                 target_dir = Path(failed_path_str).joinpath("[ETC_FILES]")
+                
+                if not config.get('드라이런', False):
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                
                 for info in etc_files:
-                    info.update({'target_dir': target_dir, 'move_type': 'etc_file', 'newfilename': info['original_file'].name})
-                    entity = CensoredTask.__file_move_logic(config, info, task_context['db_model'])
-                    if entity and entity.target_path: entity.save()
-        
-        # 동반 자막 처리 (이름이 긴 것부터 완전 일치 매칭)
-        if is_companion_enabled:
-            unmatched_subs = []
-            for s_info in subtitles:
-                found_pair = False
-                s_info['is_korean'] = True
-                
-                for v_info in sorted(videos, key=lambda x: len(x['original_file'].name), reverse=True):
-                    video_stem = v_info['original_file'].stem
-                    sub_stem = s_info['original_file'].stem
+                    file = info['original_file']
+                    newfile = target_dir.joinpath(file.name)
                     
-                    if video_stem == sub_stem or sub_stem.startswith(video_stem):
-                        if 'companion_subs_list' not in v_info:
-                            v_info['companion_subs_list'] = []
+                    if config.get('드라이런', False):
+                        logger.warning(f"[Dry Run] 기타 파일 이동 예정: '{file.name}' -> '{newfile}'")
+                        continue
+                    
+                    try:
+                        if newfile.exists():
+                            newfile.unlink()
+                            
+                        shutil.move(str(file), str(newfile))
+                        logger.debug(f"기타 파일 이동 (중복 무시): {file.name} -> {target_dir}")
                         
-                        current_ext = s_info['original_file'].suffix.lower()
-                        has_same_ext = any(exist_sub['original_file'].suffix.lower() == current_ext for exist_sub in v_info['companion_subs_list'])
+                        entity = task_context['db_model'](config.get('이름'), str(file.parent), file.name)
+                        entity.set_target(newfile).set_move_type('etc_file')
+                        entity.save()
                         
-                        if not has_same_ext:
-                            v_info['companion_subs_list'].append(s_info)
-                            found_pair = True
-                            break
-                
-                if not found_pair:
-                    unmatched_subs.append(s_info)
+                    except Exception as e:
+                        logger.error(f"기타 파일 이동 중 오류 ({file.name}): {e}")
+            else:
+                logger.warning(f"기타 파일({len(etc_files)}개)을 이동할 '처리실패이동폴더'가 설정되지 않아 건너뜁니다.")
+        
+        # 동반 자막 처리
+        if is_companion_enabled:
+            videos, unmatched_subs = ToolExpandFileProcess.pair_companion_subtitles(videos, subtitles, config)
             
             execution_plan.extend(videos)
             execution_plan.extend(unmatched_subs)
