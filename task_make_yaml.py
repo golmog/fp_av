@@ -363,8 +363,7 @@ class Task:
                 'Referer': url.split('/', 3)[0] + '//' + url.split('/')[2] 
             }
 
-            # stream=True 유지 (대용량 영상 다운로드용)
-            with requests.get(url, stream=True, proxies=proxies, headers=headers, verify=False, timeout=60) as r:
+            with requests.get(url, stream=True, proxies=proxies, headers=headers, verify=False, timeout=180) as r:
                 r.raise_for_status()
                 with open(filepath, 'wb') as f:
                     for chunk in r.iter_content(chunk_size=8192):

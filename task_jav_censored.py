@@ -226,68 +226,43 @@ class Task:
         subtitles = [info for info in parsed_infos if info['file_type'] == 'subtitle']
         etc_files = [info for info in parsed_infos if info['file_type'] == 'etc']
         
-        # --- etc 파일 우선 처리 ---
+        # 기타 파일 처리
         if etc_files:
             failed_path_str = config.get('처리실패이동폴더', '').strip()
             if failed_path_str:
                 target_dir = Path(failed_path_str).joinpath("[ETC_FILES]")
-                logger.info(f"{len(etc_files)}개의 기타 파일을 '{target_dir}'로 이동합니다.")
+                
+                if not config.get('드라이런', False):
+                    target_dir.mkdir(parents=True, exist_ok=True)
+                
                 for info in etc_files:
-                    # 파일명은 변경하지 않고 그대로 이동
-                    info.update({'target_dir': target_dir, 'move_type': 'etc_file', 'newfilename': info['original_file'].name})
-                    entity = Task.__file_move_logic(config, info, task_context['db_model'])
-                    if entity and entity.target_path:
+                    file = info['original_file']
+                    newfile = target_dir.joinpath(file.name)
+                    
+                    if config.get('드라이런', False):
+                        logger.warning(f"[Dry Run] 기타 파일 이동 예정: '{file.name}' -> '{newfile}'")
+                        continue
+                    
+                    try:
+                        if newfile.exists():
+                            newfile.unlink()
+                            
+                        shutil.move(str(file), str(newfile))
+                        logger.debug(f"기타 파일 이동 (중복 무시): {file.name} -> {target_dir}")
+                        
+                        entity = task_context['db_model'](config.get('이름'), str(file.parent), file.name)
+                        entity.set_target(newfile).set_move_type('etc_file')
                         entity.save()
+                        
+                    except Exception as e:
+                        logger.error(f"기타 파일 이동 중 오류 ({file.name}): {e}")
             else:
                 logger.warning(f"기타 파일({len(etc_files)}개)을 이동할 '처리실패이동폴더'가 설정되지 않아 건너뜁니다.")
         
         if is_companion_enabled:
-            unmatched_subs = []
-            can_detect_korean_sub = config.get('동반자막한국어자막판별', False) and UtilFunc._initialize_chardet()
-            if config.get('동반자막한국어자막판별', False) and not can_detect_korean_sub:
-                logger.warning("한국어 자막 판별 기능이 활성화되었으나, chardet 라이브러리를 사용할 수 없어 모든 동반 자막을 한국어 자막으로 처리합니다.")
+            videos, unmatched_subs = ToolExpandFileProcess.pair_companion_subtitles(videos, subtitles, config)
             
-            for s_info in subtitles:
-                found_pair = False
-                
-                # 자막 언어 판별
-                is_kor = True
-                if can_detect_korean_sub and not UtilFunc.is_korean_subtitle(s_info['original_file'], config):
-                    is_kor = False
-                
-                # 판별 결과를 s_info에 저장 (True: 한국어 또는 판별불가, False: 외국어)
-                s_info['is_korean'] = is_kor
-
-                # 영상 파일명을 기준으로 짝을 찾음 (긴 이름 우선)
-                for v_info in sorted(videos, key=lambda x: len(x['original_file'].name), reverse=True):
-                    
-                    video_stem = v_info['original_file'].stem
-                    sub_stem = s_info['original_file'].stem
-                    
-                    # 파일명 매칭 (완전 일치 또는 startswith)
-                    if video_stem == sub_stem or sub_stem.startswith(video_stem):
-                        # 리스트 초기화
-                        if 'companion_subs_list' not in v_info:
-                            v_info['companion_subs_list'] = []
-                        
-                        # 동일 확장자 중복 체크
-                        # 이미 리스트에 같은 확장자를 가진 자막이 있는지 확인
-                        current_ext = s_info['original_file'].suffix.lower()
-                        has_same_ext = any(exist_sub['original_file'].suffix.lower() == current_ext for exist_sub in v_info['companion_subs_list'])
-                        
-                        if not has_same_ext:
-                            v_info['companion_subs_list'].append(s_info)
-                            found_pair = True
-                            break # 영상 찾았으니 다음 자막으로
-                        else:
-                            # 이미 같은 확장자의 자막이 있으면, 이 자막은 "중복"으로 간주하여 처리하지 않음 (버림)
-                            found_pair = True 
-                            break 
-                
-                if not found_pair:
-                    unmatched_subs.append(s_info)
-            
-            # 최종 실행 계획 = 영상(자막 포함) + 짝없는 자막 + 기타 파일(위에서 처리됨)
+            # 최종 실행 계획 = 영상(자막 포함) + 짝없는 자막
             execution_plan.extend(videos)
             execution_plan.extend(unmatched_subs)
         else:
