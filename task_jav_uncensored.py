@@ -354,30 +354,44 @@ class Task:
         if not meta_module:
             return None
         
-        if info['label'].lower() not in config.get('메타검색지원레이블', set()):
-            return None
-            
-        try:
-            delay_seconds = config.get('파일당딜레이', 0)
-            if delay_seconds > 0:
-                time.sleep(delay_seconds)
+        best_match = None
+        match_site = "N/A"
+        meta_info = None
+        manual_url = info.get('manual_url')
 
-            search_result = meta_module.search(info['pure_code'], manual=False)
-            if search_result:
-                best_match = next((item for item in search_result if item and item.get('score', 0) >= 95), None)
-                if best_match:
-                    meta_info = meta_module.info(best_match["code"], fp_meta_mode=True)
-                    if meta_info:
-                        match_site = best_match.get('site', 'N/A')
-                        logger.info(f"'{info['pure_code']}' 메타 검색 성공: {meta_info.get('originaltitle')} (from: {match_site})")
-                        for actor in (meta_info.get("actor") or []):
-                            try:
-                                meta_module.process_actor(actor)
-                            except Exception as e:
-                                logger.error(f"배우 '{actor.get('originalname')}' 정보 처리 중 오류: {e}")
-                        return meta_info
+        try:
+            # 1. 수동 URL 매칭 우선 처리 (수동 지정이므로 지원 레이블 검사를 우회함)
+            if manual_url:
+                logger.info(f"'{info['pure_code']}' JAV 수동 URL 매칭 시도: {manual_url}")
+                search_result = meta_module.search(manual_url, manual=True)
+                if search_result:
+                    best_match = next((item for item in search_result if item and item.get('score', 0) >= 95), None)
+
+            # 2. 수동 매칭이 없거나 실패한 경우, 일반 자동 검색 진행
+            if not best_match:
+                if info['label'].lower() not in config.get('메타검색지원레이블', set()):
+                    return None
+                
+                search_result = meta_module.search(info['pure_code'], manual=False)
+                if search_result:
+                    best_match = next((item for item in search_result if item and item.get('score', 0) >= 95), None)
+
+            # 3. 매칭 성공 시 상세 정보 획득 및 후처리
+            if best_match:
+                meta_info = meta_module.info(best_match["code"], fp_meta_mode=True)
+                if meta_info:
+                    match_site = best_match.get('site', 'N/A')
+                    logger.info(f"'{info['pure_code']}' 메타 검색 성공: {meta_info.get('originaltitle')} (from: {match_site})")
+                    for actor in (meta_info.get("actor") or []):
+                        try:
+                            meta_module.process_actor(actor)
+                        except Exception as e:
+                            logger.error(f"배우 '{actor.get('originalname')}' 정보 처리 중 오류: {e}")
+                    return meta_info
+
         except Exception as e:
             logger.error(f"'{info['pure_code']}' 메타 검색 중 예외: {e}")
+            logger.error(traceback.format_exc())
         
         return None
 
@@ -521,6 +535,14 @@ class Task:
                         if entity: 
                             if entity.target_path:
                                 entity.save()
+
+                                txt_file = info['original_file'].with_suffix('.txt')
+                                if txt_file.exists() and info.get('manual_url') and not config.get('드라이런', False):
+                                    try:
+                                        txt_file.unlink()
+                                        logger.debug(f"JAV 수동 매칭 트리거 파일 삭제 완료: {txt_file.name}")
+                                    except Exception as e:
+                                        pass
                             else:
                                 continue
 

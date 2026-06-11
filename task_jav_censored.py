@@ -672,6 +672,20 @@ class Task:
         else:
             file_type = 'etc'
 
+        txt_file = file.with_suffix('.txt')
+        manual_url = None
+        
+        if file_type == 'video' and txt_file.exists() and txt_file.is_file():
+            try:
+                with open(txt_file, 'r', encoding='utf-8') as f:
+                    content = f.read().strip()
+                    # HTTP URL 형태인지 간단히 검증
+                    if content.startswith('http://') or content.startswith('https://'):
+                        manual_url = content
+                        logger.info(f"수동 매칭 JAV TXT 감지: '{file.name}' -> {manual_url}")
+            except Exception as e:
+                logger.error(f"수동 JAV TXT 읽기 에러: {e}")
+
         info = {
             'original_file': file,
             'file_size': file.stat().st_size,
@@ -684,7 +698,8 @@ class Task:
             'raw_number': parsed['raw_number'],
             'ext': parsed['ext'],
             'meta_info': None,
-            'media_info': None
+            'media_info': None,
+            'manual_url': manual_url
         }
         ext_config = config.get('미디어정보설정', {})
         if config.get('파일명에미디어정보포함') and info.get('file_type') == 'video':
@@ -1012,65 +1027,93 @@ class Task:
     def _get_metadata(config, info):
         """
         메타데이터 검색을 수행하고, 성공 시 meta_info 객체를 반환합니다.
-        경로 결정 로직은 포함하지 않습니다.
         """
         meta_module = Task.get_meta_module('jav_censored')
         if not meta_module:
             logger.error("메타데이터 플러그인을 찾을 수 없습니다. 메타 검색을 건너뜁니다.")
             return None
 
+        # 기본 검색어 설정 (파싱된 품번)
         search_name = info.get('search_keyword') or info['pure_code']
-        # logger.debug(f"메타 검색 시작. 대표 품번: {info['pure_code']}, 실제 검색어: {search_name}")
-
-        label = search_name.split("-")[0].lower()
-
-        # --- 1. 제외 레이블 확인 ---
-        if label in config.get('메타매칭제외레이블', []):
-            logger.info(f"'{label}'은(는) '정상 매칭 제외 레이블'에 포함되어 메타 검색을 건너뜁니다.")
-            return None
-
-        # --- 2. 메타 정보 획득 ---
-        meta_info = None
-        match_site = "N/A"
+        
+        # 변수 사전 정의 (예외 방지)
+        manual_url = info.get('manual_url')
         best_match = None
-        custom_search_settings = config.get('메타검색에사용할사이트')
+        match_site = "N/A"
+        meta_info = None
 
-        if custom_search_settings:
-            # 시나리오 A: 사용자가 사이트를 직접 지정한 경우
-            site_list = [s for s in custom_search_settings if not config.get('메타검색에공식사이트만사용', False) or s.get('사이트') in ['dmm', 'mgstage']]
-            for rule in site_list:
-                site_name, min_score = rule.get('사이트'), rule.get('점수', 95)
-                if not site_name: continue
-                try:
-                    res = meta_module.search2(search_name, site_name, manual=False)
-                    match = next((item for item in res if item.get('score', 0) >= min_score), None)
-                    if match:
-                        logger.debug(f"'{site_name}' 사이트에서 '{search_name}'에 대한 유효한 매치(점수: {match.get('score')})를 찾았습니다. 검색을 중단합니다.")
-                        best_match = match
-                        break 
-                except Exception as e:
-                    logger.error(f"'{site_name}' 사이트 검색 중 예외 발생: {e}")
-        else:
-            # 시나리오 B: 통합 search 사용 (기본 검색)
+        # 1. 수동 URL 매칭 우선 처리
+        if manual_url:
+            logger.info(f"'{info['pure_code']}' JAV 수동 URL 매칭 시도: {manual_url}")
             try:
-                res = meta_module.search(search_name, manual=False)
-                # search 결과가 있고, 그 첫번째 항목의 점수가 95점 이상이면 유효한 매치로 간주
-                if res and res[0].get('score', 0) >= 95:
-                    best_match = res[0]
+                # 메타 플러그인의 search 함수에 URL을 직접 전달 (수동이므로 manual=True)
+                res = meta_module.search(manual_url, manual=True)
+                if res and isinstance(res, list) and len(res) > 0:
+                    if res[0].get('score', 0) >= 95:
+                        best_match = res[0]
             except Exception as e:
-                logger.error(f"메타데이터 통합 검색(search) 중 예외 발생: {e}")
+                logger.error(f"JAV 수동 URL 검색 중 예외 발생: {e}")
+                logger.error(traceback.format_exc())
 
+        # 2. 수동 매칭이 없거나 실패한 경우, 일반 자동 검색 진행
+        if not best_match:
+            label = ""
+            try:
+                if '-' in search_name:
+                    label = search_name.split("-")[0].lower()
+                else:
+                    label = search_name.lower()
+            except Exception as e:
+                logger.error(f"검색어에서 레이블 추출 중 오류 ('{search_name}'): {e}")
+
+            # 제외 레이블 확인
+            if label and label in config.get('메타매칭제외레이블', []):
+                logger.info(f"'{label}'은(는) '정상 매칭 제외 레이블'에 포함되어 메타 검색을 건너뜁니다.")
+                return None
+
+            custom_search_settings = config.get('메타검색에사용할사이트')
+
+            if custom_search_settings:
+                # 시나리오 A: 사용자가 검색 사이트를 직접 지정한 경우
+                site_list = [s for s in custom_search_settings if not config.get('메타검색에공식사이트만사용', False) or s.get('사이트') in ['dmm', 'mgstage']]
+                for rule in site_list:
+                    site_name, min_score = rule.get('사이트'), rule.get('점수', 95)
+                    if not site_name: continue
+                    try:
+                        res = meta_module.search2(search_name, site_name, manual=False)
+                        if res and isinstance(res, list):
+                            match = next((item for item in res if item.get('score', 0) >= min_score), None)
+                            if match:
+                                logger.debug(f"'{site_name}' 사이트에서 '{search_name}'에 대한 유효한 매치(점수: {match.get('score')})를 찾았습니다. 검색을 중단합니다.")
+                                best_match = match
+                                break 
+                    except Exception as e:
+                        logger.error(f"'{site_name}' 사이트 검색 중 예외 발생: {e}")
+            else:
+                # 시나리오 B: 통합 search 사용 (기본 검색)
+                try:
+                    res = meta_module.search(search_name, manual=False)
+                    if res and isinstance(res, list) and len(res) > 0:
+                        if res[0].get('score', 0) >= 95:
+                            best_match = res[0]
+                except Exception as e:
+                    logger.error(f"메타데이터 통합 검색(search) 중 예외 발생: {e}")
+
+        # 3. 매칭된 결과가 있으면 상세 정보 조회
         if best_match:
             try:
-                meta_info = meta_module.info(best_match["code"], keyword=search_name, fp_meta_mode=True)
+                # 수동 매칭일 때는 검색 키워드를 원래 품번(search_keyword)으로 복구하여 매칭 데이터 완성도 보장
+                keyword_param = info.get('search_keyword') if manual_url else search_name
+                meta_info = meta_module.info(best_match["code"], keyword=keyword_param, fp_meta_mode=True)
                 if meta_info:
                     match_site = best_match.get('site', 'N/A')
             except Exception as e:
                 logger.error(f"'{best_match['code']}'의 상세 정보 획득 중 예외 발생: {e}")
+                logger.error(traceback.format_exc())
                 
-        # --- 3. 메타 정보 후처리 및 반환 ---
+        # --- 4. 메타 정보 후처리 및 반환 ---
         if meta_info:
-            logger.info(f"'{search_name}' 메타 검색 성공: {meta_info.get('originaltitle')} (from: {match_site})")
+            logger.info(f"'{info['pure_code']}' 메타 검색 성공: {meta_info.get('originaltitle')} (from: {match_site})")
             for actor in (meta_info.get("actor") or []):
                 try:
                     meta_module.process_actor(actor)
@@ -1078,7 +1121,7 @@ class Task:
                     logger.error(f"배우 '{actor.get('originalname')}' 이름 번역 중 오류: {e}")
             return meta_info
         else:
-            logger.info(f"'{search_name}'에 대한 유효한 메타 정보를 찾지 못했습니다.")
+            logger.info(f"'{info['pure_code']}'에 대한 유효한 메타 정보를 찾지 못했습니다.")
             return None
 
 
@@ -1246,6 +1289,14 @@ class Task:
                         if entity: 
                             if entity.target_path:
                                 entity.save()
+                                
+                                txt_file = info['original_file'].with_suffix('.txt')
+                                if txt_file.exists() and info.get('manual_url') and not config.get('드라이런', False):
+                                    try:
+                                        txt_file.unlink()
+                                        logger.debug(f"JAV 수동 매칭 트리거 파일 삭제 완료: {txt_file.name}")
+                                    except Exception as e:
+                                        pass
                             else:
                                 continue
 
