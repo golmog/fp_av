@@ -658,6 +658,16 @@ class Task:
             
         min_score_cutoff = config.get('메타매칭커트라인', 80)
             
+        # 부가파일 생성 여부 확인 (번역 스킵 여부 결정)
+        any_meta_option_on = any([
+            config.get('부가파일생성_YAML', False),
+            config.get('부가파일생성_NFO', False),
+            config.get('부가파일생성_JSON', False),
+            config.get('부가파일생성_IMAGE', False),
+            config.get('부가파일생성_TRAILER', False)
+        ])
+        skip_trans = not any_meta_option_on
+
         try:
             delay_seconds = config.get('파일당딜레이', 0)
             if delay_seconds > 0:
@@ -684,7 +694,7 @@ class Task:
                 
                 if forced_code:
                     # 바로 info 호출
-                    meta_info = meta_module.info(forced_code, fp_meta_mode=True)
+                    meta_info = meta_module.info(forced_code, fp_meta_mode=True, skip_trans=skip_trans)
                     if meta_info:
                         logger.info(f"'{search_name}' 수동 매칭 성공!: {meta_info.get('originaltitle')}")
                         return meta_info
@@ -698,7 +708,7 @@ class Task:
                 best_match = next((item for item in search_result if item.get('score', 0) >= min_score_cutoff), None)
             
             if best_match:
-                meta_info = meta_module.info(best_match["code"], fp_meta_mode=True)
+                meta_info = meta_module.info(best_match["code"], fp_meta_mode=True, skip_trans=skip_trans)
                 if meta_info:
                     match_site = best_match.get('site', 'N/A')
                     logger.info(f"'{search_name}' 메타 검색 성공: {meta_info.get('originaltitle')} (from: {match_site})")
