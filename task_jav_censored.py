@@ -1033,6 +1033,16 @@ class Task:
             logger.error("메타데이터 플러그인을 찾을 수 없습니다. 메타 검색을 건너뜁니다.")
             return None
 
+        # 부가파일 생성 여부 확인 (하나라도 True이면 번역 수행, 모두 False면 번역 스킵)
+        any_meta_option_on = any([
+            config.get('부가파일생성_YAML', False),
+            config.get('부가파일생성_NFO', False),
+            config.get('부가파일생성_JSON', False),
+            config.get('부가파일생성_IMAGE', False),
+            config.get('부가파일생성_TRAILER', False)
+        ])
+        skip_trans = not any_meta_option_on
+
         # 기본 검색어 설정 (파싱된 품번)
         search_name = info.get('search_keyword') or info['pure_code']
         
@@ -1104,7 +1114,8 @@ class Task:
             try:
                 # 수동 매칭일 때는 검색 키워드를 원래 품번(search_keyword)으로 복구하여 매칭 데이터 완성도 보장
                 keyword_param = info.get('search_keyword') if manual_url else search_name
-                meta_info = meta_module.info(best_match["code"], keyword=keyword_param, fp_meta_mode=True)
+                
+                meta_info = meta_module.info(best_match["code"], keyword=keyword_param, fp_meta_mode=True, skip_trans=skip_trans)
                 if meta_info:
                     match_site = best_match.get('site', 'N/A')
             except Exception as e:
