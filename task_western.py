@@ -663,8 +663,8 @@ class Task:
             config.get('부가파일생성_YAML', False),
             config.get('부가파일생성_NFO', False),
             config.get('부가파일생성_JSON', False),
-            config.get('부가파일생성_IMAGE', False),
-            config.get('부가파일생성_TRAILER', False)
+            # config.get('부가파일생성_IMAGE', False),
+            # config.get('부가파일생성_TRAILER', False)
         ])
         skip_trans = not any_meta_option_on
 
