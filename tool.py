@@ -607,21 +607,71 @@ class ToolExpandFileProcess:
 
     @classmethod
     def _get_media_info(cls, file_path, ffprobe_config) -> Dict[str, Any] | None:
-        """ffprobe를 사용하여 미디어 정보를 추출하고 표준화합니다. (폴백 로직 적용)"""
+        """ffprobe를 사용하여 미디어 정보를 추출하고 표준화합니다."""
         ffprobe_bin = ffprobe_config.get('ffprobe_path', '/usr/bin/ffprobe')
         if not os.path.exists(ffprobe_bin):
             logger.warning(f"ffprobe를 찾을 수 없습니다: {ffprobe_bin}")
             return None
 
+        data = None
+        max_retries = 2
+        retry_delay = 2
+
+        # 네트워크 지연 등을 고려한 재시도 루프
+        for attempt in range(max_retries + 1):
+            try:
+                cmd = [ffprobe_bin, "-v", "quiet", "-show_format", "-show_streams", "-print_format", "json", str(file_path)]
+                result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
+
+                if result.returncode != 0:
+                    if attempt < max_retries:
+                        logger.warning(f"ffprobe 실행 실패 (시도 {attempt+1}/{max_retries+1}), {retry_delay}초 후 재시도: {file_path.name}")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"ffprobe 실행 최종 실패: {file_path.name} - {result.stderr.strip()}")
+                        return {'is_valid': False, 'error': 'ffprobe_execution_failed'}
+
+                if not result.stdout.strip():
+                    if attempt < max_retries:
+                        logger.warning(f"ffprobe 빈 응답 수신 (시도 {attempt+1}/{max_retries+1}), {retry_delay}초 후 재시도: {file_path.name}")
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        logger.error(f"ffprobe 최종 실패: 빈 응답 수신 - {file_path.name}")
+                        return {'is_valid': False, 'error': 'ffprobe_empty_response'}
+
+                data = json.loads(result.stdout)
+                break  # 성공 시 루프 탈출
+
+            except subprocess.TimeoutExpired:
+                if attempt < max_retries:
+                    logger.warning(f"ffprobe 타임아웃 (시도 {attempt+1}/{max_retries+1}), {retry_delay}초 후 재시도: {file_path.name}")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.error(f"ffprobe 타임아웃 최종 실패: {file_path.name}")
+                    return {'is_valid': False, 'error': 'ffprobe_timeout'}
+
+            except json.JSONDecodeError as e:
+                if attempt < max_retries:
+                    logger.warning(f"ffprobe 결과 JSON 파싱 실패 (시도 {attempt+1}/{max_retries+1}), {retry_delay}초 후 재시도: {file_path.name}")
+                    time.sleep(retry_delay)
+                    continue
+                else:
+                    logger.error(f"ffprobe 결과 JSON 파싱 최종 실패: {file_path.name} - {str(e)}")
+                    return {'is_valid': False, 'error': 'json_decode_failed'}
+
+            except Exception as e:
+                logger.error(f"미디어 정보 추출 중 예외 발생: {file_path.name} - {e}")
+                logger.error(traceback.format_exc())
+                return {'is_valid': False, 'error': str(e)}
+
+        # 데이터를 정상적으로 획득한 경우에만 아래 로직 실행
+        if not data:
+            return {'is_valid': False, 'error': 'unknown_error'}
+
         try:
-            cmd = [ffprobe_bin, "-v", "quiet", "-show_format", "-show_streams", "-print_format", "json", str(file_path)]
-            result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=30)
-
-            if result.returncode != 0:
-                logger.error(f"ffprobe 실행 실패: {file_path.name} - {result.stderr.strip()}")
-                return {'is_valid': False, 'error': 'ffprobe_execution_failed'}
-
-            data = json.loads(result.stdout)
             video_stream = next((s for s in data.get('streams', []) if s.get('codec_type') == 'video'), None)
             audio_stream = next((s for s in data.get('streams', []) if s.get('codec_type') == 'audio'), None)
 
@@ -658,7 +708,6 @@ class ToolExpandFileProcess:
 
             num_str, den_str = fr_str.split('/')
 
-            # 분자/분모가 0이거나 정수가 아닌 경우 대비
             try:
                 num, den = float(num_str), float(den_str)
                 raw_fps = num / den if den != 0 else 0.0
@@ -730,7 +779,7 @@ class ToolExpandFileProcess:
             return media_info
 
         except Exception as e:
-            logger.error(f"미디어 정보 추출 중 예외 발생: {file_path.name} - {e}")
+            logger.error(f"미디어 정보 후처리 중 예외 발생: {file_path.name} - {e}")
             logger.error(traceback.format_exc())
             return {'is_valid': False, 'error': str(e)}
 
