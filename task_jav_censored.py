@@ -577,6 +577,9 @@ class Task:
         meta_no_path_str = ModelSetting.get(f'{module_name}_meta_no_path').strip()
         if not meta_no_path_str: return []
 
+        if '{' in meta_no_path_str:
+            meta_no_path_str = meta_no_path_str.split('{')[0].rstrip('/\\')
+
         meta_no_path = Path(meta_no_path_str)
         if not meta_no_path.is_dir(): return []
 

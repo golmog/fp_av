@@ -101,8 +101,10 @@ class TaskBase:
         CensoredTask._load_extended_settings(config)
 
         if is_manual_retry:
-            logger.info("수동 재처리 모드: 메타 매칭 실패 시 이동 설정을 강제로 False로 전환합니다.")
+            logger.debug("수동 재처리 모드: '메타 매칭 실패 시 이동 설정', '폴더명으로 파일명 변경'을 강제로 False로 전환합니다.")
             config["메타매칭실패시이동"] = False
+            config["파일명변경"] = False
+            config["폴더명으로파일명변경"] = False
 
         # 작업 실행 분기
         if job_type in ['default', 'dry_run', 'manual_path']:

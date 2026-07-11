@@ -94,11 +94,19 @@ class ModuleWestern(PluginModuleBase):
                     if temp_path:
                         path = os.path.join(temp_path, '[NO META]')
                 
-                if not path or not os.path.exists(path):
+                if not path:
                     return jsonify({'ret': 'fail', 'msg': '경로가 존재하지 않거나 설정되지 않았습니다.'})
+
+                # 템플릿 변수 분리
+                if '{' in path:
+                    path = path.split('{')[0].rstrip('/\\')
+
+                if not os.path.exists(path):
+                    return jsonify({'ret': 'fail', 'msg': f'처리할 폴더가 존재하지 않습니다.\n({path})'})
                 
-                self.start_celery(TaskBase.start, 'manual_path', path)
+                self.start_celery(TaskBase.start, None, 'manual_path', path)
                 return jsonify({'ret': 'success', 'msg': f'[{os.path.basename(path)}] 폴더에서 재처리를 시작했습니다.'})
+                
         except Exception as e:
             logger.error(f'Exception:{str(e)}')
-            return jsonify({'ret': 'exception', 'msg': str(e)})
+            return {'ret': 'exception', 'msg': str(e)}
