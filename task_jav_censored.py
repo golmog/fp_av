@@ -44,7 +44,7 @@ class TaskBase:
             "최소크기": ModelSetting.get_int("jav_censored_min_size"),
             "최대기간": ModelSetting.get_int("jav_censored_max_age"),
             "품번파싱제외키워드": ModelSetting.get_list("jav_censored_filename_cleanup_list", "|"),
-            "파일처리하지않을파일명": ModelSetting.get_list("jav_censored_filename_not_allowed_list", "|"),
+            "파일처리하지않을파일명": ModelSetting.get("jav_censored_filename_not_allowed_list") or "",
 
             "이동폴더포맷": ModelSetting.get("jav_censored_folder_format"),
             "메타사용": ModelSetting.get("jav_censored_use_meta"),
@@ -1463,8 +1463,10 @@ class Task:
                                 break
 
                     bot = {
-                        't1': 'gds_tool', 't2': 'fp', 't3': 'av',
-                        'data': {'gds_path': str(newfile).replace('/mnt/AV/MP/GDS', '/ROOT/GDRIVE/VIDEO/AV')}
+                        't1': 'gds_tool', 
+                        't2': 'fp', 
+                        't3': config.get('module_name', 'av'),
+                        'data': {'gds_path': gds_path_str}
                     }
                     hook = base64.b64decode(b'aHR0cHM6Ly9kaXNjb3JkLmNvbS9hcGkvd2ViaG9va3MvMTM5OTkxMDg4MDE4NzEyNTgxMS84SFY0bk93cGpXdHhIdk5TUHNnTGhRbDhrR3lGOXk4THFQQTdQVTBZSXVvcFBNN21PWHhkSVJSNkVmcmIxV21UdFhENw==').decode('utf-8')
                     SupportDiscord.send_discord_bot_message(json.dumps(bot), hook)

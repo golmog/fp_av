@@ -88,8 +88,38 @@ class ToolExpandFileProcess:
             return
 
         min_size = config.get('최소크기', 0)
-        disallowed_keys = config.get('파일처리하지않을파일명', [])
-        subtitle_exts = config.get('subtitle_exts', set()) # config에서 자막 확장자 로드
+        subtitle_exts = config.get('subtitle_exts', set()) 
+
+        # --- 예외 키워드/정규식 파싱 로직 ---
+        raw_disallowed_setting = config.get('파일처리하지않을파일명', "")
+        
+        # YAML에서 리스트 형태로 들어왔을 경우를 대비
+        if isinstance(raw_disallowed_setting, list):
+            lines = raw_disallowed_setting
+        else:
+            lines = str(raw_disallowed_setting).splitlines()
+
+        normal_keys = []
+        regex_patterns = []
+
+        for line in lines:
+            line = line.strip()
+            if not line:
+                continue
+                
+            if line.lower().startswith('regex||'):
+                # 정규식 모드: 파이프(|)로 자르지 않고 전체를 정규식으로 취급
+                pattern_str = line[7:].strip()
+                try:
+                    regex_patterns.append(re.compile(pattern_str, re.IGNORECASE))
+                except re.error as e:
+                    logger.error(f"예외 키워드 정규식 파싱 오류 '{pattern_str}': {e}")
+            else:
+                # 일반 모드: 기존처럼 파이프(|) 구분 지원
+                for k in line.split('|'):
+                    k = k.strip()
+                    if k:
+                        normal_keys.append(k.lower())
 
         files = []
         for file in cls._iterdir(source, min_size=min_size, subtitle_exts=subtitle_exts):
@@ -102,11 +132,22 @@ class ToolExpandFileProcess:
                 newdir = errpath.joinpath("[FILENAME HASHED]")
             elif len(file.name.encode("utf-8")) > 200:
                 newdir = errpath.joinpath("[FILENAME TOO LONG]")
-            elif any(p in file.name.lower() for p in map(str.lower, disallowed_keys)):
-                newdir = errpath.joinpath("[FILENAME NOT ALLOWED]")
             else:
-                files.append(file)
-                continue
+                is_not_allowed = False
+                filename_lower = file.name.lower()
+                
+                # 1. 일반 문자열 포함 여부 검사
+                if any(nk in filename_lower for nk in normal_keys):
+                    is_not_allowed = True
+                # 2. 정규식 매칭 검사
+                elif any(rp.search(file.name) for rp in regex_patterns):
+                    is_not_allowed = True
+
+                if is_not_allowed:
+                    newdir = errpath.joinpath("[FILENAME NOT ALLOWED]")
+                else:
+                    files.append(file)
+                    continue
 
             if newdir is not None:
                 if not is_dry_run:
@@ -117,7 +158,6 @@ class ToolExpandFileProcess:
                 if is_dry_run:
                     logger.warning(f"[Dry Run] 전처리: '{file.name}' -> '{newfile}' (이동 예정)")
                 else:
-                    newdir.mkdir(parents=True, exist_ok=True)
                     shutil.move(file, newfile)
             else:
                 if errpath is None:
@@ -532,7 +572,6 @@ class ToolExpandFileProcess:
                             suffix = suffix.lstrip()
 
                             if suffix.startswith(media_info_str):
-                                # logger.debug(f" -> 미디어 정보가 삽입될 위치에 이미 존재합니다. (중복 방지)")
                                 return info['original_file'].name
                             
                             # 중복이 아니라고 판단되면 삽입 진행
@@ -558,11 +597,11 @@ class ToolExpandFileProcess:
 
             ori_name_raw = ""
             if is_part_set:
-                raw_prefix = info.get('part_set_prefix', '').strip()
+                raw_prefix = info.get('part_set_prefix', '')
                 clean_prefix = re.sub(r'[-_\s]?(cd|part|pt)$', '', raw_prefix, flags=re.I)
 
-                # 신규 분할 파일: prefix와 suffix를 합쳐 원본명 대표 생성
-                ori_name_raw = f"{clean_prefix} {info.get('part_set_suffix', '')}"
+                # 신규 분할 파일
+                ori_name_raw = f"{clean_prefix}{info.get('part_set_suffix', '')}"
                 file_size = info.get('part_set_total_size')
             else:
                 # 신규 단일 파일
@@ -570,11 +609,19 @@ class ToolExpandFileProcess:
                 file_size = info.get('file_size')
 
             # ori_name 정리(cleanup) 로직
+            # 1) 대괄호를 소괄호로 변경
             cleaned_ori_name = ori_name_raw.replace("[", "(").replace("]", ")")
-            cleaned_ori_name = re.sub(r'--+', '-', cleaned_ori_name)
-            cleaned_ori_name = re.sub(r'__+', '_', cleaned_ori_name)
+            
+            # 2) 내용이 없는 빈 괄호 제거
             cleaned_ori_name = re.sub(r'[\(\[\{]\s*[\)\]\}]', '', cleaned_ori_name)
-            cleaned_ori_name = re.sub(r'[\s._-]{2,}', ' ', cleaned_ori_name)
+            
+            # 3) 연속된 기호/공백을 각각 원본 형식에 맞춰 압축
+            cleaned_ori_name = re.sub(r'\s{2,}', ' ', cleaned_ori_name)
+            # cleaned_ori_name = re.sub(r'\.{2,}', '.', cleaned_ori_name)
+            cleaned_ori_name = re.sub(r'-{2,}', '-', cleaned_ori_name)
+            cleaned_ori_name = re.sub(r'_{2,}', '_', cleaned_ori_name)
+            
+            # 4) 양 끝의 불필요한 기호 제거
             cleaned_ori_name = cleaned_ori_name.strip(' _.,-')
 
             if option == "original":
