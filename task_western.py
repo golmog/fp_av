@@ -40,7 +40,7 @@ class TaskBase:
             "최소크기": ModelSetting.get_int("western_min_size"),
             "최대기간": ModelSetting.get_int("western_max_age"),
             "품번파싱제외키워드": ModelSetting.get_list("western_filename_cleanup_list", "|"),
-            "파일처리하지않을파일명": ModelSetting.get_list("western_filename_not_allowed_list", "|"),
+            "파일처리하지않을파일명": ModelSetting.get("western_filename_not_allowed_list") or "",
 
             # 서양식 폴더 포맷 ({studio}/{title} 권장)
             "이동폴더포맷": ModelSetting.get("western_folder_format"),
@@ -71,6 +71,7 @@ class TaskBase:
 
             "재시도": True,
             "방송": False,
+            "방송경로변환": None,
             
             # 부가파일 생성
             "부가파일생성_YAML": ModelSetting.get_bool("western_make_yaml"),

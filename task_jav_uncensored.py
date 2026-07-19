@@ -40,7 +40,7 @@ class TaskBase:
             "최소크기": ModelSetting.get_int("jav_uncensored_min_size"),
             "최대기간": ModelSetting.get_int("jav_uncensored_max_age"),
             "품번파싱제외키워드": ModelSetting.get_list("jav_uncensored_filename_cleanup_list", "|"),
-            "파일처리하지않을파일명": ModelSetting.get_list("jav_uncensored_filename_not_allowed_list", "|"),
+            "파일처리하지않을파일명": ModelSetting.get("jav_uncensored_filename_not_allowed_list") or "",
             "파일당딜레이": ModelSetting.get_int("jav_uncensored_delay_per_file"),
             # 파일명 탭
             "파일명변경": ModelSetting.get_bool("jav_uncensored_change_filename"),
@@ -63,6 +63,7 @@ class TaskBase:
 
             "재시도": True,
             "방송": False,
+            "방송경로변환": None,
             "부가파일생성_YAML": ModelSetting.get_bool("jav_uncensored_make_yaml"),
             "부가파일생성_NFO": ModelSetting.get_bool("jav_uncensored_make_nfo"),
             "부가파일생성_JSON": ModelSetting.get_bool("jav_uncensored_make_json"),
