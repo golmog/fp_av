@@ -73,7 +73,6 @@ class TaskBase:
             "부가파일미디어경로포함": ModelSetting.get_bool("jav_uncensored_include_media_path"),
             "PLEXMATE스캔": ModelSetting.get_bool("jav_uncensored_scan_with_plex_mate"),
             "드라이런": ModelSetting.get_bool("jav_uncensored_dry_run"),
-            'PLEXMATE_URL': F.SystemModelSetting.get('ddns'),
 
             "동반자막처리활성화": ModelSetting.get_bool("jav_uncensored_companion_enable"),
             "동반자막언어코드추가": ModelSetting.get_bool("jav_uncensored_companion_add_ko"),
@@ -421,10 +420,6 @@ class Task:
         scan_enabled = config.get("PLEXMATE스캔", False)
         item_count = 0
         
-        # 스캔할 경로들을 중복 없이 저장할 집합(Set)
-        scan_queue = set()
-        
-        # 스캔 대상으로 인정할 유효한 이동 타입 정의
         valid_scan_types = {
             'dvd', 'normal', 'subbed', 'custom_path', 
             'companion_kor', 'companion_kor_sub',
@@ -433,7 +428,6 @@ class Task:
         if config.get('매칭실패이동후스캔', False):
             valid_scan_types.update(['no_meta', 'meta_fail'])
         
-        # 실패 타입 명시적 정의 (안전장치)
         failed_types = {'failed_video', 'etc_file', 'meta_fail_skipped', 'no_meta_deleted_due_to_duplication'}
 
         from itertools import groupby
@@ -456,7 +450,6 @@ class Task:
                     
                     target_dir, move_type, _ = Task._get_final_target_path(config, info, task_context, preloaded_meta=meta_info_for_group)
 
-                    # 미디어 정보 분석 실패 여부 확인
                     is_media_info_failed = (
                         config.get('파일명에미디어정보포함') and
                         info['file_type'] == 'video' and
@@ -469,20 +462,17 @@ class Task:
                         
                         failed_path_str = config.get('미디어정보실패시이동경로', '')
                         if failed_path_str:
-                            # 사용자가 지정한 실패 경로 사용 (포맷팅 지원)
                             base_path, format_str = CensoredTask._resolve_path_template(config, info, meta_info_for_group, failed_path_str)
                             folders = CensoredTask.process_folder_format(config, info, format_str, meta_info_for_group)
                             target_dir = base_path.joinpath(*folders)
                         else:
-                            # 기본 실패 경로 사용 (처리실패이동폴더/[FAILED_VIDEO])
                             base_failed_path = config.get('처리실패이동폴더', '').strip()
                             if base_failed_path:
                                 target_dir = Path(base_failed_path).joinpath("[FAILED_VIDEO]")
                             else:
                                 logger.error("미디어 분석 실패 파일을 이동할 '미디어정보실패시이동경로' 또는 '처리실패이동폴더'가 설정되지 않았습니다.")
-                                continue # 이동 경로가 없으면 건너뛰기
+                                continue 
                     else:
-                        # 정상 처리 또는 실패 시 이동 옵션이 꺼진 경우
                         target_dir, move_type, _ = Task._get_final_target_path(config, info, task_context, preloaded_meta=meta_info_for_group)
 
                     if not target_dir:
@@ -510,10 +500,6 @@ class Task:
 
                     info.update({'target_dir': target_dir, 'move_type': move_type, 'meta_info': meta_info_for_group})
                     
-                    if scan_enabled and target_dir is not None:
-                        if move_type in valid_scan_types and move_type not in failed_types:
-                            scan_queue.add(target_dir)
-
                     # 사전 부가파일 생성
                     if not config.get('드라이런', False):
                         target_dir.mkdir(parents=True, exist_ok=True)
@@ -578,22 +564,16 @@ class Task:
                                 s_info.update({'target_dir': target_dir, 'move_type': 'companion_kor_sub', 'newfilename': final_sub_name})
                                 s_entity = CensoredTask.__file_move_logic(config, s_info, db_model)
                                 if s_entity and s_entity.target_path: s_entity.save()
-                                
-                                if scan_enabled and s_info.get('target_dir'):
-                                    scan_queue.add(s_info['target_dir'])
+
+                        # 동반 자막 이동까지 모두 끝나고 난 뒤 즉시 스캔 요청
+                        if scan_enabled and target_dir is not None:
+                            if move_type in valid_scan_types and move_type not in failed_types:
+                                if entity and entity.target_path:
+                                    CensoredTask.__request_plex_mate_scan(config, Path(entity.target_path), entity)
 
                 except Exception as e:
                     logger.error(f"'{info.get('pure_code', '알 수 없음')}' 파일 처리 중 예외 발생: {e}")
                     logger.error(traceback.format_exc())
-
-        # 모든 파일 처리 후 일괄 스캔 요청
-        if scan_enabled and scan_queue:
-            sorted_scan_paths = sorted(list(scan_queue))
-            logger.info(f"모든 파일 처리 완료. 총 {len(sorted_scan_paths)}개 경로에 대해 순차적 스캔을 요청합니다.")
-            
-            for path in sorted_scan_paths:
-                CensoredTask.__request_plex_mate_scan(config, path)
-                time.sleep(2)
 
         logger.info("fp_av_jav_uncensored: 모든 작업이 완료되었습니다.")
 
