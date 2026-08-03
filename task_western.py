@@ -94,7 +94,6 @@ class TaskBase:
             "파일당딜레이": ModelSetting.get_int("western_delay_per_file"),
             "PLEXMATE스캔": ModelSetting.get_bool("western_scan_with_plex_mate"),
             "드라이런": ModelSetting.get_bool("western_dry_run"),
-            'PLEXMATE_URL': F.SystemModelSetting.get('ddns'),
         }
 
         # 확장 설정 (YAML 로드)
@@ -730,7 +729,6 @@ class Task:
         
         scan_enabled = config.get("PLEXMATE스캔", False)
         item_count = 0
-        scan_queue = set()
         
         valid_scan_types = {
             'normal', 'subbed', 'custom_path', 
@@ -780,10 +778,6 @@ class Task:
                         processed_dirs_for_group.add(current_target_dir_str)
 
                     info.update({'target_dir': target_dir, 'move_type': move_type, 'meta_info': meta_info_for_group})
-                    
-                    if scan_enabled and target_dir is not None:
-                        if move_type in valid_scan_types and move_type not in failed_types:
-                            scan_queue.add(target_dir)
 
                     # [사전 부가파일 생성]
                     if not config.get('드라이런', False):
@@ -852,21 +846,15 @@ class Task:
                                 s_info.update({'target_dir': target_dir, 'move_type': 'companion_kor_sub', 'newfilename': final_sub_name})
                                 s_entity = CensoredTask.__file_move_logic(config, s_info, db_model)
                                 if s_entity and s_entity.target_path: s_entity.save()
-                                
-                                if scan_enabled and s_info.get('target_dir'):
-                                    scan_queue.add(s_info['target_dir'])
+
+                        # 동반 자막 이동까지 모두 끝나고 난 뒤 즉시 스캔 요청
+                        if scan_enabled and target_dir is not None:
+                            if move_type in valid_scan_types and move_type not in failed_types:
+                                if entity and entity.target_path:
+                                    CensoredTask.__request_plex_mate_scan(config, Path(entity.target_path), entity)
 
                 except Exception as e:
                     logger.error(f"'{info.get('pure_code', '알 수 없음')}' 파일 처리 중 예외 발생: {e}")
                     logger.error(traceback.format_exc())
-
-        # 일괄 스캔 요청
-        if scan_enabled and scan_queue:
-            sorted_scan_paths = sorted(list(scan_queue))
-            logger.info(f"모든 파일 처리 완료. 총 {len(sorted_scan_paths)}개 경로에 대해 순차적 스캔을 요청합니다.")
-            
-            for path in sorted_scan_paths:
-                CensoredTask.__request_plex_mate_scan(config, path)
-                time.sleep(2)
 
         logger.info("fp_av_western: 모든 작업이 완료되었습니다.")
