@@ -1035,15 +1035,8 @@ class Task:
             logger.error("메타데이터 플러그인을 찾을 수 없습니다. 메타 검색을 건너뜁니다.")
             return None
 
-        # 부가파일 생성 여부 확인 (하나라도 True이면 번역 수행, 모두 False면 번역 스킵)
-        any_meta_option_on = any([
-            config.get('부가파일생성_YAML', False),
-            config.get('부가파일생성_NFO', False),
-            config.get('부가파일생성_JSON', False),
-            # config.get('부가파일생성_IMAGE', False),
-            # config.get('부가파일생성_TRAILER', False)
-        ])
-        skip_trans = not any_meta_option_on
+        # config를 통해 전달받은 번역 스킵 여부 (2단계 검증을 위해 동적 적용)
+        skip_trans = config.get('_skip_trans_temp', True)
 
         # 기본 검색어 설정 (파싱된 품번)
         search_name = info.get('search_keyword') or info['pure_code']
@@ -1058,7 +1051,6 @@ class Task:
         if manual_url:
             logger.info(f"'{info['pure_code']}' JAV 수동 URL 매칭 시도: {manual_url}")
             try:
-                # 메타 플러그인의 search 함수에 URL을 직접 전달 (수동이므로 manual=True)
                 res = meta_module.search(manual_url, manual=True)
                 if res and isinstance(res, list) and len(res) > 0:
                     if res[0].get('score', 0) >= 95:
@@ -1078,7 +1070,6 @@ class Task:
             except Exception as e:
                 logger.error(f"검색어에서 레이블 추출 중 오류 ('{search_name}'): {e}")
 
-            # 제외 레이블 확인
             if label and label in config.get('메타매칭제외레이블', []):
                 logger.info(f"'{label}'은(는) '정상 매칭 제외 레이블'에 포함되어 메타 검색을 건너뜁니다.")
                 return None
@@ -1086,7 +1077,6 @@ class Task:
             custom_search_settings = config.get('메타검색에사용할사이트')
 
             if custom_search_settings:
-                # 시나리오 A: 사용자가 검색 사이트를 직접 지정한 경우
                 site_list = [s for s in custom_search_settings if not config.get('메타검색에공식사이트만사용', False) or s.get('사이트') in ['dmm', 'mgstage']]
                 for rule in site_list:
                     site_name, min_score = rule.get('사이트'), rule.get('점수', 95)
@@ -1102,7 +1092,6 @@ class Task:
                     except Exception as e:
                         logger.error(f"'{site_name}' 사이트 검색 중 예외 발생: {e}")
             else:
-                # 시나리오 B: 통합 search 사용 (기본 검색)
                 try:
                     res = meta_module.search(search_name, manual=False)
                     if res and isinstance(res, list) and len(res) > 0:
@@ -1114,9 +1103,7 @@ class Task:
         # 3. 매칭된 결과가 있으면 상세 정보 조회
         if best_match:
             try:
-                # 수동 매칭일 때는 검색 키워드를 원래 품번(search_keyword)으로 복구하여 매칭 데이터 완성도 보장
                 keyword_param = info.get('search_keyword') if manual_url else search_name
-                
                 meta_info = meta_module.info(best_match["code"], keyword=keyword_param, fp_meta_mode=True, skip_trans=skip_trans)
                 if meta_info:
                     match_site = best_match.get('site', 'N/A')
@@ -1124,14 +1111,15 @@ class Task:
                 logger.error(f"'{best_match['code']}'의 상세 정보 획득 중 예외 발생: {e}")
                 logger.error(traceback.format_exc())
                 
-        # --- 4. 메타 정보 후처리 및 반환 ---
+        # 4. 메타 정보 후처리 및 반환
         if meta_info:
-            logger.info(f"'{info['pure_code']}' 메타 검색 성공: {meta_info.get('originaltitle')} (from: {match_site})")
-            for actor in (meta_info.get("actor") or []):
-                try:
-                    meta_module.process_actor(actor)
-                except Exception as e:
-                    logger.error(f"배우 '{actor.get('originalname')}' 이름 번역 중 오류: {e}")
+            logger.info(f"'{info['pure_code']}' 메타 검색 성공: {meta_info.get('originaltitle')} (from: {match_site}, 번역스킵여부: {skip_trans})")
+            if not skip_trans:
+                for actor in (meta_info.get("actor") or []):
+                    try:
+                        meta_module.process_actor(actor)
+                    except Exception as e:
+                        logger.error(f"배우 '{actor.get('originalname')}' 이름 번역 중 오류: {e}")
             return meta_info
         else:
             logger.info(f"'{info['pure_code']}'에 대한 유효한 메타 정보를 찾지 못했습니다.")
@@ -1161,8 +1149,17 @@ class Task:
         if config.get('매칭실패이동후스캔', False):
             valid_scan_types.update(['no_meta', 'meta_fail'])
         
-        # 실패 타입 명시적 정의 (안전장치)
         failed_types = {'failed_video', 'etc_file', 'meta_fail_skipped', 'no_meta_deleted_due_to_duplication'}
+
+        # 전역 옵션 캐싱
+        any_meta_option_on = any([
+            config.get('부가파일생성_YAML', False),
+            config.get('부가파일생성_NFO', False),
+            config.get('부가파일생성_JSON', False),
+            config.get('부가파일생성_IMAGE', False),
+            config.get('부가파일생성_TRAILER', False)
+        ])
+        make_overwrite = config.get('부가파일덮어쓰기', False)
 
         from itertools import groupby
         execution_plan.sort(key=lambda x: x['pure_code'])
@@ -1173,8 +1170,37 @@ class Task:
 
             first_info = group_infos[0]
             
-            # 메타 검색 (그룹당 1회)
+            # 메타 검색
+            # 덮어쓰기가 아니면 초기 검색 시 번역 스킵
+            config['_skip_trans_temp'] = (not any_meta_option_on) or (not make_overwrite)
             _, _, meta_info_for_group = Task._get_final_target_path(config, first_info, task_context, do_meta_search=True)
+
+            # 번역을 스킵했지만, 실제 파일 생성이 필요해지는지 폴더 내부를 직접 검사
+            if meta_info_for_group and any_meta_option_on and not make_overwrite:
+                target_dir, _, _ = Task._get_final_target_path(config, first_info, task_context, do_meta_search=False, preloaded_meta=meta_info_for_group)
+                needs_files = False
+                if target_dir:
+                    if not target_dir.exists():
+                        needs_files = True
+                    else:
+                        is_code_folder = first_info.get('is_code_folder', False)
+                        identifier = (meta_info_for_group.get('originaltitle') or meta_info_for_group.get('sorttitle') or meta_info_for_group.get('code', 'movie')).lower()
+                        prefix = 'movie' if is_code_folder else identifier
+                        img_prefix = '' if is_code_folder else f'{identifier}-'
+
+                        # 하나라도 누락된 파일이 있는지 확인
+                        if config.get('부가파일생성_YAML', False) and not target_dir.joinpath(f'{prefix}.yaml').exists(): needs_files = True
+                        elif config.get('부가파일생성_NFO', False) and not target_dir.joinpath(f'{prefix}.nfo').exists(): needs_files = True
+                        elif config.get('부가파일생성_JSON', False) and not target_dir.joinpath(f'{identifier}.json').exists(): needs_files = True
+                        elif config.get('부가파일생성_IMAGE', False):
+                            if meta_info_for_group.get('thumb') and not target_dir.joinpath(f'{img_prefix}poster.jpg').exists(): needs_files = True
+                            if (meta_info_for_group.get('fanart') or meta_info_for_group.get('thumb')) and not target_dir.joinpath(f'{img_prefix}fanart.jpg').exists(): needs_files = True
+                        elif config.get('부가파일생성_TRAILER', False) and meta_info_for_group.get('extras') and not target_dir.joinpath(f'{img_prefix}movie-trailer.mp4').exists(): needs_files = True
+
+                if needs_files:
+                    # logger.debug(f"'{pure_code}' 부가 파일 생성이 필요하여 번역이 포함된 메타데이터를 다시 요청합니다.")
+                    config['_skip_trans_temp'] = False # 번역 스킵 해제
+                    meta_info_for_group = Task._get_metadata(config, first_info)
 
             # 메타데이터 품번 동기화
             if meta_info_for_group and meta_info_for_group.get('originaltitle'):
@@ -1238,14 +1264,6 @@ class Task:
                         logger.warning(f"'{info['original_file'].name}'의 이동 경로를 결정할 수 없어 건너뜁니다. (이동 타입: {move_type})")
                         continue
                     
-                    any_meta_option_on = any([
-                        config.get('부가파일생성_YAML', False),
-                        config.get('부가파일생성_NFO', False),
-                        config.get('부가파일생성_JSON', False),
-                        config.get('부가파일생성_IMAGE', False),
-                        config.get('부가파일생성_TRAILER', False)
-                    ])
-
                     current_target_dir_str = str(target_dir)
                     info['should_create_meta'] = False
                     
@@ -1303,13 +1321,13 @@ class Task:
                             else:
                                 continue
 
-                        # 동반 자막 처리 (자막 이동)
+                        # 동반 자막 이동
                         if 'companion_subs_list' in info:
                             for s_info in info['companion_subs_list']:
                                 sub_ext = s_info['original_file'].suffix
                                 logger.info(f"{log_prefix} 동반 자막: {s_info['original_file'].name}")
                                 
-                                new_video_stem = Path(info['newfilename']).stem
+                                new_video_stem = Path(info.get('newfilename', info['original_file'].name)).stem
                                 if entity and entity.target_path:
                                     new_video_stem = Path(entity.target_path).stem
                                 
@@ -1323,13 +1341,12 @@ class Task:
 
                                 s_info.update({'target_dir': target_dir, 'move_type': 'companion_kor_sub', 'newfilename': final_sub_name})
                                 s_entity = Task.__file_move_logic(config, s_info, db_model)
-                                if s_entity and s_entity.target_path: s_entity.save()
+                                if s_entity and s_entity.target_path: 
+                                    s_entity.save()
 
-                        # 동반 자막 이동까지 모두 끝나고 난 뒤 즉시 스캔 요청
-                        if scan_enabled and target_dir is not None:
-                            if move_type in valid_scan_types and move_type not in failed_types:
-                                if entity and entity.target_path:
-                                    Task.__request_plex_mate_scan(config, Path(entity.target_path), entity)
+                        # --- 동반 자막까지 모두 이동 완료 후, 본 영상 경로에 대해서만 1회 스캔 요청 ---
+                        if scan_enabled and entity and entity.target_path and entity.move_type in valid_scan_types:
+                            Task.__request_plex_mate_scan(config, Path(entity.target_path), entity)
                 
                 except Exception as e:
                     logger.error(f"'{info.get('pure_code', '알 수 없음')}' 파일 처리 중 예외 발생: {e}")
@@ -1435,7 +1452,7 @@ class Task:
                 logger.info(f"파일 이동 성공: -> {newfile}")
 
                 # 방송 처리 (이동 성공 후)
-                if config.get('방송', False):
+                if config.get('방송', False) and info.get('file_type') == 'video':
                     gds_path_str = str(newfile)
                     replace_rules = config.get('방송경로변환')
 
