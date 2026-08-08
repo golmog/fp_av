@@ -265,12 +265,15 @@ class Task:
 
         # --- JSON 파일 생성 ---
         if make_json:
-            try:
-                with open(filepath_json, 'w', encoding='utf-8') as f:
-                    json.dump(info_for_files, f, ensure_ascii=False, indent=4)
-                logger.debug(f"JSON 생성 완료: {filepath_json}")
-            except Exception as e:
-                logger.error(f"JSON 생성 중 오류 발생: {e}")
+            if make_overwrite or not os.path.exists(filepath_json):
+                try:
+                    with open(filepath_json, 'w', encoding='utf-8') as f:
+                        json.dump(info_for_files, f, ensure_ascii=False, indent=4)
+                    logger.debug(f"JSON 생성 완료: {filepath_json}")
+                except Exception as e:
+                    logger.error(f"JSON 생성 중 오류 발생: {e}")
+            else:
+                logger.debug(f"이미 존재함 (건너뜀): {os.path.basename(filepath_json)}")
 
         # --- YAML 파일 생성 ---
         if make_yaml:
