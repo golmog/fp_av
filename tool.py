@@ -37,17 +37,38 @@ class ToolExpandFileProcess:
             return
 
         subtitle_exts = subtitle_exts or set()
-        # iterate depth=1 items only
-        logger.info(f"전처리: 비어있거나 유효한 파일이 없는 오래된 폴더를 삭제합니다.")
+        
+        # 1. 현재 폴더 내의 "유효한(보존 대상) 본편 미디어/자막"의 이름(stem)을 수집
+        valid_stems = set()
+        for f in path.iterdir():
+            if f.is_file():
+                if f.stat().st_size >= min_size * 1024**2 or f.suffix.lower() in subtitle_exts:
+                    valid_stems.add(f.stem.lower())
+                    
+        logger.info(f"전처리: 비어있거나 유효한 파일이 없는 오래된 폴더/파일을 삭제합니다.")
+        
+        # 2. 파일 및 폴더 삭제 로직
         for child in path.iterdir():
             try:
                 if child.stat().st_mtime < time.time() - max_age:
                     # old enough
-                    if child.is_dir() and not list(cls._iterdir(child, min_size=min_size, subtitle_exts=subtitle_exts)):
-                        logger.debug(f"폴더 삭제: {child}")
-                        shutil.rmtree(child)
-                    elif child.is_file() and not cls._is_legit_file(child, min_size=min_size, subtitle_exts=subtitle_exts):
-                        logger.debug(f"파일 삭제: {child}")
+                    if child.is_dir():
+                        if not list(cls._iterdir(child, min_size=min_size, subtitle_exts=subtitle_exts)):
+                            logger.debug(f"폴더 삭제: {child}")
+                            shutil.rmtree(child)
+                    elif child.is_file():
+                        # 본편 영상이나 자막은 유지
+                        if child.stat().st_size >= min_size * 1024**2 or child.suffix.lower() in subtitle_exts:
+                            continue
+                            
+                        # 본편보다 작은 파일 중, 본편 영상과 이름(stem)이 완벽히 동일한 메타 파일만 제한적 보호
+                        protected_exts = {'.json', '.txt', '.yaml', '.nfo'}
+                        if child.suffix.lower() in protected_exts:
+                            if child.stem.lower() in valid_stems:
+                                continue
+                                
+                        # 짝꿍 영상이 없는 고아(Orphan) 파일이거나 보호대상이 아닌 파일(이미지, 광고 등)이면 삭제
+                        logger.debug(f"파일 삭제 (찌꺼기/고아 파일): {child}")
                         child.unlink()
             except Exception as e:
                 logger.warning(f"전처리 중 '{child}' 처리 실패: {e}")
@@ -377,6 +398,7 @@ class ToolExpandFileProcess:
         base, ext = os.path.splitext(original_filename)
         clean_base = base
 
+        # 1. 파일명에서 화질, 불필요한 태그 등 정리
         if cleanup_pattern:
             try:
                 clean_base = re.sub(cleanup_pattern, '', clean_base, flags=re.IGNORECASE).strip()
@@ -385,6 +407,7 @@ class ToolExpandFileProcess:
         else:
             clean_base = re.sub(r'\[.*?\]$', '', clean_base).strip()
 
+        # 2. 부가 영상(Featurette) 판별
         is_featurette = False
         if featurette_pattern:
             try:
@@ -395,20 +418,43 @@ class ToolExpandFileProcess:
             except re.error as e:
                 logger.error(f"Western 부가 영상 인식 정규식 오류: {e}")
 
-        def pascal_case_preserve(text):
-            words = re.split(r'[\'-]', text)
+        # 3. 스튜디오 추출 로직
+        raw_studio = clean_base
+        
+        # A) 날짜 패턴 (YY.MM.DD, YYYY-MM-DD 등)을 찾아 그 앞부분을 스튜디오로 간주
+        date_match = re.search(r'\b(\d{2,4}[-.\s_]\d{2}[-.\s_]\d{2})\b', clean_base)
+        if date_match:
+            raw_studio = clean_base[:date_match.start()]
+            
+        # B) 날짜가 없을 경우, ' - ' (공백 하이픈 공백) 기준 분리
+        elif ' - ' in clean_base:
+            raw_studio = clean_base.split(' - ')[0]
+            
+        # C) 최후의 수단: 첫 번째 기호(점, 띄어쓰기, 언더바, 하이픈)까지만 분리하여 스튜디오로 간주
+        else:
+            split_match = re.split(r'[\.\s_-]+', clean_base, 1)
+            raw_studio = split_match[0] if split_match else clean_base
+
+        # 괄호 및 양끝 찌꺼기 기호 제거
+        raw_studio = re.sub(r'[\(\)\[\]\{\}]', '', raw_studio)
+        raw_studio = raw_studio.strip(' -._')
+
+        # D) 하이픈, 언더바, 점을 공백으로 변환 후 각 단어 첫 글자만 대문자로 (Title Case 적용)
+        # O'Brien 같이 어포스트로피가 들어간 이름은 원형을 보존하도록 처리
+        def format_studio_name(text):
+            text = text.replace('-', ' ').replace('_', ' ').replace('.', ' ')
+            words = text.split()
             result_words = []
             for w in words:
                 if not w: continue
-                result_words.append(w[0].upper() + w[1:])
-            
-            return "".join(result_words)
+                sub_words = w.split("'")
+                sub_res = [sw[0].upper() + sw[1:] if sw else "" for sw in sub_words]
+                result_words.append("'".join(sub_res))
+            return " ".join(result_words)
 
-        # 스튜디오 추출
-        split_match = re.split(r'[\.\s_]+', clean_base, 1)
-        raw_studio = split_match[0] if split_match else clean_base
-        raw_studio = re.sub(r'[\(\)\[\]\{\}]', '', raw_studio)
-        clean_studio = cls.pascal_case_preserve(raw_studio)
+        clean_studio = format_studio_name(raw_studio)
+        if not clean_studio:
+            clean_studio = "Unknown"
 
         return {
             'code': base,               
