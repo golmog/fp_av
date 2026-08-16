@@ -169,8 +169,12 @@ class Task:
             else:
                 is_code_folder = current_folder_name.replace('-', '') == identifier.replace('-', '')
 
-        # 전용 폴더면 'movie', 아니면 식별자(파일명 또는 품번) 사용
-        prefix = 'movie' if is_code_folder else identifier
+        # 공용 폴더 시 기준이 될 최종 비디오 파일 이름
+        video_stem = original_filename if original_filename else identifier
+        
+        prefix = 'movie' if is_code_folder else video_stem
+        img_prefix = '' if is_code_folder else f'{video_stem}-'
+        trailer_name = 'movie-trailer.mp4' if is_code_folder else f'{video_stem}-trailer.mp4'
 
         logger.debug(f"부가파일 생성: [모듈:{module_name}] [식별자:{identifier}] [프리픽스:{prefix}] [전용폴더:{is_code_folder}]")
 
@@ -182,12 +186,9 @@ class Task:
         filepath_json = os.path.join(folder_path, f'{identifier}.json')
         
         # 이미지/트레일러
-        # 전용 폴더면 poster.jpg, 아니면 식별자-poster.jpg
-        img_prefix = '' if is_code_folder else f'{identifier}-'
-
         filepath_poster = os.path.join(folder_path, f'{img_prefix}poster.jpg')
         filepath_fanart = os.path.join(folder_path, f'{img_prefix}fanart.jpg')
-        filepath_trailer = os.path.join(folder_path, f'{img_prefix}movie-trailer.mp4')
+        filepath_trailer = os.path.join(folder_path, trailer_name)
 
         # 공용 데이터 추출 함수 (리스트/단일객체 모두 대응)
         def get_as_list(data, key):
@@ -207,6 +208,14 @@ class Task:
         if include_media_path:
             # 포스터 및 배경 이미지 추출
             all_thumbs = get_as_list(info_for_files, 'thumb')
+            
+            # 이미지 파일 생성 옵션이 켜져있거나 이미 로컬에 존재하면 제외 처리
+            skip_poster_url = make_image or os.path.exists(filepath_poster)
+            skip_fanart_url = make_image or os.path.exists(filepath_fanart)
+            
+            # if skip_poster_url or skip_fanart_url:
+            #     logger.debug("로컬 이미지가 우선하므로 메타파일(NFO/YAML) 기록에서 일부/전체 이미지 URL을 제외합니다.")
+
             for t in all_thumbs:
                 if not isinstance(t, dict): continue
                 val = t.get('value')
@@ -214,25 +223,35 @@ class Task:
                 
                 aspect = t.get('aspect')
                 if aspect == 'poster':
-                    posters.append(val)
+                    if not skip_poster_url:
+                        posters.append(val)
                 elif aspect == 'landscape':
-                    arts.append(val)
+                    if not skip_fanart_url:
+                        arts.append(val)
             
             # fanart 필드에 있는 주소들도 arts에 합침
             for f in get_as_list(info_for_files, 'fanart'):
                 url = f if isinstance(f, str) else f.get('value') if isinstance(f, dict) else None
                 if url and url not in arts:
-                    arts.append(url)
+                    if not skip_fanart_url:
+                        arts.append(url)
             
-            # 부가 정보 (트레일러 등)
-            extras_list = get_as_list(info_for_files, 'extras')
+            # 부가 정보 (트레일러 등) 필터링
+            raw_extras = get_as_list(info_for_files, 'extras')
+            for ext in raw_extras:
+                if isinstance(ext, dict) and ext.get('content_type') == 'trailer':
+                    # 트레일러 파일 생성 옵션이 켜져 있거나, 이미 로컬 트레일러 파일이 존재한다면 메타 URL에서 제외
+                    if make_trailer or os.path.exists(filepath_trailer):
+                        # logger.debug(f"로컬 트레일러가 우선하므로 메타파일(NFO/YAML) 기록에서 트레일러 URL을 제외합니다.")
+                        continue
+                extras_list.append(ext)
         else:
             # 정보 포함 안 함 설정 시 관련 필드 삭제 (정제)
             info_for_files.pop('thumb', None)
             info_for_files.pop('fanart', None)
             info_for_files.pop('extras', None)
 
-        # 이미지/트레일러 물리 파일 저장 (개선된 로직 + 덮어쓰기 적용)
+        # 이미지/트레일러 물리 파일 저장
         if make_image:
             poster_url = next((t['value'] for t in get_as_list(info, 'thumb') if isinstance(t, dict) and t.get('aspect') == 'poster'), None)
             
