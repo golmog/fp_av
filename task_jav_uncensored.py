@@ -19,10 +19,17 @@ from .task_make_yaml import Task as TaskMakeYaml
 
 
 class TaskBase:
-    @F.celery.task
-    def start(*args):
-        logger.info(args)
+    @F.celery.task(bind=True, acks_late=False)
+    def start(self, *args):
+        logger.info(f"Task 수신 인자: {args}")
         job_type = args[0]
+
+        delivery_info = getattr(self.request, 'delivery_info', {}) or {}
+        is_redelivered = delivery_info.get('redelivered') or getattr(self.request, 'redelivered', False)
+
+        if is_redelivered:
+            logger.warning(f"[{job_type}] 이전 세션 비정상 종료로 재전송(redelivered)된 고아 태스크 실행을 안전하게 취소합니다.")
+            return
 
         is_manual_retry = (job_type == 'manual_path')
 
