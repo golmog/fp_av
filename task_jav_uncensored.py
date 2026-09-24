@@ -52,6 +52,7 @@ class TaskBase:
             # 파일명 탭
             "파일명변경": ModelSetting.get_bool("jav_uncensored_change_filename"),
             "파일명에미디어정보포함": ModelSetting.get_bool("jav_uncensored_include_media_info_in_filename"),
+            "미디어정보템플릿": ModelSetting.get("jav_censored_media_info_template").strip(),
             "분할파일처리": ModelSetting.get_bool("jav_uncensored_process_part_files"),
             "원본파일명포함여부": ModelSetting.get_bool("jav_uncensored_include_original_filename"),
             "원본파일명처리옵션": ModelSetting.get("jav_uncensored_include_original_filename_option"),

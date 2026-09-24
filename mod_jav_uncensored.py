@@ -95,6 +95,7 @@ class ModuleJavUncensored(PluginModuleBase):
                         'parse_mode': mode,
                         '파일명변경': P.ModelSetting.get_bool(f'{prefix}_change_filename'),
                         '파일명에미디어정보포함': P.ModelSetting.get_bool(f'{prefix}_include_media_info_in_filename'),
+                        '미디어정보템플릿': P.ModelSetting.get(f'{prefix}_media_info_template').strip(),
                         '원본파일명포함여부': P.ModelSetting.get_bool(f'{prefix}_include_original_filename'),
                         '원본파일명처리옵션': P.ModelSetting.get(f'{prefix}_include_original_filename_option'),
                         '품번파싱제외키워드': P.ModelSetting.get_list(f'{prefix}_filename_cleanup_list', "|"),
