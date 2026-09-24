@@ -885,6 +885,22 @@ class Task:
 
 
     @staticmethod
+    def _get_first_letter(text: str) -> str:
+        """
+        문자열의 첫 글자를 기준으로 알파벳(A-Z), 숫자(09), 기타(#)를 반환합니다.
+        대괄호나 기호로 시작하더라도 첫 번째 유효 영문/숫자를 탐색합니다.
+        """
+        if not text:
+            return '#'
+        match = re.search(r'[a-zA-Z0-9]', text)
+        if match:
+            ch = match.group(0)
+            if ch.isdigit():
+                return '09'
+            else:
+                return ch.upper()
+        return '#'
+    @staticmethod
     def _get_subfolder_to_move(file_path: Path, download_paths: list) -> Path | None:
         """
         파일이 다운로드 폴더 하위의 서브폴더에 속해 있는지 검사합니다.
@@ -900,11 +916,11 @@ class Task:
                     continue
                 dl_resolved = Path(dl).resolve()
                 
-                # 1. 파일의 부모가 다운로드 루트 자체인 경우 -> 단독 파일 (폴더 이동 금지)
+                # 파일의 부모가 다운로드 루트 자체인 경우 -> 단독 파일
                 if parent_resolved == dl_resolved:
                     return None
                 
-                # 2. 파일의 부모가 다운로드 루트의 하위 폴더인 경우 -> 이동할 서브폴더
+                # 파일의 부모가 다운로드 루트의 하위 폴더인 경우 -> 이동할 서브폴더
                 if dl_resolved in parent_resolved.parents:
                     return file_path.parent
         except Exception as e:
@@ -914,7 +930,7 @@ class Task:
 
     @staticmethod
     def __file_move_logic(config, info, model_class, task_context=None):
-        """Western 전용 파일/폴더 이동 로직 (메타 실패 시 폴더 보존 처리)"""
+        """Western 전용 파일/폴더 이동 로직 (메타 실패 시 폴더 보존 및 알파벳 서브폴더 자동 분류)"""
         if task_context is None:
             task_context = {}
         moved_folders = task_context.setdefault('moved_folders', {})
@@ -931,33 +947,47 @@ class Task:
             logger.warning(f"'{file.name}'의 최종 이동 경로를 결정할 수 없어 건너뜁니다.")
             return entity.set_move_type(None)
 
-        # 메타 매칭 실패 (meta_fail, no_meta) 처리: 서브폴더 통째 이동 vs 단독 파일 이동
+        # 메타 매칭 실패 (meta_fail, no_meta) 처리
         if move_type in ["no_meta", "meta_fail"]:
+            # 서브폴더 존재 여부 확인 (다운로드 루트 폴더 보호)
             subfolder = Task._get_subfolder_to_move(file, config.get('다운로드폴더', []))
+
+            # 이동 경로에 포맷({..}) 지정 여부 확인 및 알파벳 서브폴더 적용
+            fail_path_setting = config.get('메타매칭실패시이동폴더', '').strip()
+            has_custom_format = ('{' in fail_path_setting and '}' in fail_path_setting)
+
+            # 포맷 미지정 시: 서브폴더면 폴더명, 단독 파일이면 파일명 기준으로 첫 글자 추출
+            base_name_for_letter = subfolder.name if subfolder else file.stem
+            first_letter = Task._get_first_letter(base_name_for_letter)
+
+            # 포맷 템플릿이 없을 때만 알파벳 서브폴더(A-Z, 09, #)를 타겟 경로 하위에 추가
+            dest_dir = target_dir
+            if not has_custom_format:
+                dest_dir = target_dir.joinpath(first_letter)
 
             if subfolder:
                 subfolder_key = str(subfolder.resolve())
 
-                # A. 이미 앞선 분할 파일(예: 001.mp4)에 의해 폴더가 통째로 이동된 경우
+                # 이미 앞선 분할 파일에 의해 폴더가 통째로 이동된 경우
                 if subfolder_key in moved_folders:
                     dst_folder = moved_folders[subfolder_key]
                     newfile = dst_folder.joinpath(file.name)
                     logger.info(f"메타 실패 폴더가 이미 이동되었습니다 (동일 폴더 내 파일): {newfile}")
                     return entity.set_target(newfile).set_move_type(move_type)
 
-                # B. 처음으로 서브폴더를 통째로 이동하는 경우
-                dst_folder = target_dir.joinpath(subfolder.name)
+                # 처음으로 서브폴더를 통째로 이동하는 경우
+                dst_folder = dest_dir.joinpath(subfolder.name)
 
                 if is_dry_run:
                     logger.warning(f"[Dry Run] 메타 실패 (서브폴더 전체 이동 예정): '{subfolder}' -> '{dst_folder}'")
                     return None
 
-                target_dir.mkdir(parents=True, exist_ok=True)
+                dest_dir.mkdir(parents=True, exist_ok=True)
 
                 try:
                     if dst_folder.exists():
                         timestamp = int(datetime.now().timestamp())
-                        dst_folder = target_dir.joinpath(f"[{timestamp}] {subfolder.name}")
+                        dst_folder = dest_dir.joinpath(f"[{timestamp}] {subfolder.name}")
 
                     shutil.move(str(subfolder), str(dst_folder))
                     moved_folders[subfolder_key] = dst_folder
@@ -971,14 +1001,14 @@ class Task:
                     return entity.set_move_type("move_fail")
 
             else:
-                # C. 단독 파일인 경우: 다운로드 폴더는 보존하고 파일만 단독 이동
-                newfile = target_dir.joinpath(newfilename)
+                # 단독 파일인 경우: 다운로드 폴더는 보존하고 파일만 단독 이동
+                newfile = dest_dir.joinpath(newfilename)
 
                 if is_dry_run:
                     logger.warning(f"[Dry Run] 메타 실패 (단독 파일 이동 예정): '{file}' -> '{newfile}'")
                     return None
 
-                target_dir.mkdir(parents=True, exist_ok=True)
+                dest_dir.mkdir(parents=True, exist_ok=True)
                 try:
                     if newfile.exists():
                         file.unlink()
