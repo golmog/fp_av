@@ -3,12 +3,14 @@ from pathlib import Path
 import traceback
 import re
 import os
+import shutil
 import time
+from datetime import datetime
 from itertools import groupby
 
 ModelSetting = P.ModelSetting
 from .task_jav_censored import Task as CensoredTask
-from .tool import ToolExpandFileProcess, UtilFunc
+from .tool import ToolExpandFileProcess, UtilFunc, SafeFormatter
 from .model_western import ModelWesternItem
 from support import SupportYaml, SupportDiscord
 from .task_make_yaml import Task as TaskMakeYaml
@@ -34,7 +36,11 @@ class TaskBase:
         else:
             target_paths = ModelSetting.get("western_download_path").splitlines()
 
-        rename_from_folder = ModelSetting.get_bool("western_rename_from_folder")
+        change_filename = ModelSetting.get_bool("western_change_filename")
+        change_filename_type = ModelSetting.get("western_change_filename_type") or "folder"
+
+        rename_from_folder = change_filename and (change_filename_type == "folder")
+        use_meta_filename = change_filename and (change_filename_type == "meta")
 
         config = {
             "이름": job_type,
@@ -55,8 +61,11 @@ class TaskBase:
             
             "검색키워드정제패턴": ModelSetting.get("western_search_cleanup_pattern") or "",
 
-            "파일명변경": rename_from_folder, 
+            "파일명변경": change_filename,
+            "파일명변경타입": change_filename_type,
             "폴더명으로파일명변경": rename_from_folder,
+            "메타데이터기반파일명변경": use_meta_filename,
+            "파일명템플릿": ModelSetting.get("western_filename_template"),
 
             # 서양에서 사용되지 않는 옵션 생략/False 처리
             "파일명에미디어정보포함": False,
@@ -118,6 +127,7 @@ class TaskBase:
             config["메타매칭실패시이동"] = False
             config["파일명변경"] = False
             config["폴더명으로파일명변경"] = False
+            config["메타데이터기반파일명변경"] = False
 
         # 작업 실행 분기
         if job_type in ['default', 'dry_run', 'manual_path']:
@@ -779,6 +789,243 @@ class Task:
 
 
     @staticmethod
+    def assemble_western_filename(config, info, meta_info):
+        """서양 메타데이터 기반 파일명 조립 (남자 배우 배제, actor_N 지원, res_tag 연동)"""
+        template = config.get('파일명템플릿') or "{studio} - {actor_3} - {title} ({year}) [{res_tag}]"
+        file_path = info['original_file']
+        safe_fn = ToolExpandFileProcess.get_safe_filename
+
+        # 배우 필터링 (남자 배우 배제)
+        actor_list = meta_info.get('actor') or []
+        valid_actors = []
+        for a in actor_list:
+            if not isinstance(a, dict):
+                continue
+            gender = str(a.get('gender') or '').strip().lower()
+            role = str(a.get('role') or '').strip().lower()
+            if gender in ['male', 'm', '남자', '남성'] or role in ['male', 'm', '남자', '남성']:
+                continue
+            name = a.get('name') or a.get('name_ko') or a.get('name_org') or a.get('name_en')
+            if name:
+                valid_actors.append(safe_fn(str(name).strip()))
+
+        # 해상도 및 미디어 정보 추출 (ffprobe 우선, 실패 시 정규식 폴백)
+        res_tag, v_codec, a_codec = "", "", ""
+        ext_config = config.get('미디어정보설정', {})
+        media_info = ToolExpandFileProcess._get_media_info(file_path, ext_config)
+        
+        if media_info and media_info.get('is_valid'):
+            res_tag = media_info.get('res_tag', '')
+            v_codec = media_info.get('v_codec', '')
+            a_codec = media_info.get('a_codec', '')
+        else:
+            stem_lower = file_path.stem.lower()
+            if re.search(r'\b(4320p|8k)\b', stem_lower): res_tag = "8K"
+            elif re.search(r'\b(2880p|6k)\b', stem_lower): res_tag = "6K"
+            elif re.search(r'\b(2160p|4k|uhd)\b', stem_lower): res_tag = "4K"
+            elif re.search(r'\b(1440p|3k|2k|qhd)\b', stem_lower): res_tag = "3K"
+            elif re.search(r'\b(1080p|fhd)\b', stem_lower): res_tag = "FHD"
+            elif re.search(r'\b(720p|hd)\b', stem_lower): res_tag = "HD"
+            elif re.search(r'\b(480p|576p|sd)\b', stem_lower): res_tag = "SD"
+
+        file_size = info.get('file_size')
+        if file_size is None and file_path.exists():
+            try:
+                file_size = file_path.stat().st_size
+            except Exception:
+                file_size = 0
+        file_size_str = str(file_size or 0)
+
+        # 템플릿 변수 매핑
+        studio_str = safe_fn(meta_info.get('studio') or info.get('studio', 'NO_STUDIO'))
+        title_str = safe_fn(meta_info.get('title') or meta_info.get('originaltitle') or file_path.stem)
+        year_str = str(meta_info.get('year') or '')
+        code_str = safe_fn(meta_info.get('code') or file_path.stem)
+
+        studio_1 = '#'
+        if studio_str:
+            match = re.search(r'[a-zA-Z0-9]', studio_str)
+            studio_1 = "09" if match and match.group(0).isdigit() else (match.group(0).upper() if match else '#')
+
+        data = {
+            'studio': studio_str,
+            'studio_1': studio_1,
+            'title': title_str,
+            'year': year_str,
+            'code': code_str,
+            'filename': safe_fn(file_path.stem),
+            'res_tag': res_tag,
+            'v_codec': v_codec,
+            'a_codec': a_codec,
+            'actor': ", ".join(valid_actors),
+            'bytes': file_size_str,
+            'filesize': file_size_str,
+        }
+
+        # 동적 {actor_N} 변수 생성
+        for match in re.finditer(r'\{actor_(\d+)\}', template):
+            n = int(match.group(1))
+            data[f'actor_{n}'] = ", ".join(valid_actors[:n])
+
+        # 포맷팅 및 안전한 파일명 정제
+        safe_fmt = SafeFormatter()
+        formatted = safe_fmt.format(template, **data)
+        formatted = formatted.replace("()", "").replace("[]", "").replace("{}", "")
+        formatted = re.sub(r'\{[a-zA-Z0-9_.-]+\}', '', formatted)
+        formatted = re.sub(r'\s{2,}', ' ', formatted)
+        formatted = re.sub(r'\s*-\s*-\s*', ' - ', formatted)
+        formatted = safe_fn(formatted.strip(' ._-'))
+
+        # Plex 분할 파일 태그(-pt1 등)가 있다면 끝에 보존
+        part_tag = info.get('western_part_tag', '')
+        if part_tag and not formatted.endswith(part_tag):
+            formatted += part_tag
+
+        return f"{formatted}{file_path.suffix.lower()}"
+
+
+    @staticmethod
+    def _get_first_letter(text: str) -> str:
+        """
+        문자열의 첫 글자를 기준으로 알파벳(A-Z), 숫자(09), 기타(#)를 반환합니다.
+        대괄호나 기호로 시작하더라도 첫 번째 유효 영문/숫자를 탐색합니다.
+        """
+        if not text:
+            return '#'
+        match = re.search(r'[a-zA-Z0-9]', text)
+        if match:
+            ch = match.group(0)
+            if ch.isdigit():
+                return '09'
+            else:
+                return ch.upper()
+        return '#'
+    @staticmethod
+    def _get_subfolder_to_move(file_path: Path, download_paths: list) -> Path | None:
+        """
+        파일이 다운로드 폴더 하위의 서브폴더에 속해 있는지 검사합니다.
+        - 서브폴더에 속한 경우: 해당 서브폴더(file_path.parent) 반환
+        - 다운로드 루트에 직접 위치한 단독 파일인 경우: None 반환 (다운로드 폴더 자체 이동 방지)
+        """
+        try:
+            file_resolved = file_path.resolve()
+            parent_resolved = file_resolved.parent
+            
+            for dl in download_paths:
+                if not str(dl).strip():
+                    continue
+                dl_resolved = Path(dl).resolve()
+                
+                # 파일의 부모가 다운로드 루트 자체인 경우 -> 단독 파일
+                if parent_resolved == dl_resolved:
+                    return None
+                
+                # 파일의 부모가 다운로드 루트의 하위 폴더인 경우 -> 이동할 서브폴더
+                if dl_resolved in parent_resolved.parents:
+                    return file_path.parent
+        except Exception as e:
+            logger.error(f"경로 검사 중 오류 ({file_path}): {e}")
+            
+        return None
+
+    @staticmethod
+    def __file_move_logic(config, info, model_class, task_context=None):
+        """Western 전용 파일/폴더 이동 로직 (메타 실패 시 폴더 보존 및 알파벳 서브폴더 자동 분류)"""
+        if task_context is None:
+            task_context = {}
+        moved_folders = task_context.setdefault('moved_folders', {})
+        
+        is_dry_run = config.get('드라이런', False)
+        file = info['original_file']
+        newfilename = info.get('newfilename', file.name)
+        target_dir = info.get('target_dir')
+        move_type = info.get('move_type')
+
+        entity = model_class(config.get('이름'), str(file.parent), file.name)
+
+        if move_type is None or target_dir is None:
+            logger.warning(f"'{file.name}'의 최종 이동 경로를 결정할 수 없어 건너뜁니다.")
+            return entity.set_move_type(None)
+
+        # 메타 매칭 실패 (meta_fail, no_meta) 처리
+        if move_type in ["no_meta", "meta_fail"]:
+            # 서브폴더 존재 여부 확인 (다운로드 루트 폴더 보호)
+            subfolder = Task._get_subfolder_to_move(file, config.get('다운로드폴더', []))
+
+            # 이동 경로에 포맷({..}) 지정 여부 확인 및 알파벳 서브폴더 적용
+            fail_path_setting = config.get('메타매칭실패시이동폴더', '').strip()
+            has_custom_format = ('{' in fail_path_setting and '}' in fail_path_setting)
+
+            # 포맷 미지정 시: 서브폴더면 폴더명, 단독 파일이면 파일명 기준으로 첫 글자 추출
+            base_name_for_letter = subfolder.name if subfolder else file.stem
+            first_letter = Task._get_first_letter(base_name_for_letter)
+
+            # 포맷 템플릿이 없을 때만 알파벳 서브폴더(A-Z, 09, #)를 타겟 경로 하위에 추가
+            dest_dir = target_dir
+            if not has_custom_format:
+                dest_dir = target_dir.joinpath(first_letter)
+
+            if subfolder:
+                subfolder_key = str(subfolder.resolve())
+
+                # 이미 앞선 분할 파일에 의해 폴더가 통째로 이동된 경우
+                if subfolder_key in moved_folders:
+                    dst_folder = moved_folders[subfolder_key]
+                    newfile = dst_folder.joinpath(file.name)
+                    logger.info(f"메타 실패 폴더가 이미 이동되었습니다 (동일 폴더 내 파일): {newfile}")
+                    return entity.set_target(newfile).set_move_type(move_type)
+
+                # 처음으로 서브폴더를 통째로 이동하는 경우
+                dst_folder = dest_dir.joinpath(subfolder.name)
+
+                if is_dry_run:
+                    logger.warning(f"[Dry Run] 메타 실패 (서브폴더 전체 이동 예정): '{subfolder}' -> '{dst_folder}'")
+                    return None
+
+                dest_dir.mkdir(parents=True, exist_ok=True)
+
+                try:
+                    if dst_folder.exists():
+                        timestamp = int(datetime.now().timestamp())
+                        dst_folder = dest_dir.joinpath(f"[{timestamp}] {subfolder.name}")
+
+                    shutil.move(str(subfolder), str(dst_folder))
+                    moved_folders[subfolder_key] = dst_folder
+                    logger.info(f"메타 실패 폴더 전체를 이동했습니다: '{subfolder}' -> '{dst_folder}'")
+
+                    newfile = dst_folder.joinpath(file.name)
+                    return entity.set_target(newfile).set_move_type(move_type)
+                except Exception as e:
+                    logger.error(f"메타 실패 폴더 이동 중 오류: {subfolder} -> {dst_folder}, 오류: {e}")
+                    logger.error(traceback.format_exc())
+                    return entity.set_move_type("move_fail")
+
+            else:
+                # 단독 파일인 경우: 다운로드 폴더는 보존하고 파일만 단독 이동
+                newfile = dest_dir.joinpath(newfilename)
+
+                if is_dry_run:
+                    logger.warning(f"[Dry Run] 메타 실패 (단독 파일 이동 예정): '{file}' -> '{newfile}'")
+                    return None
+
+                dest_dir.mkdir(parents=True, exist_ok=True)
+                try:
+                    if newfile.exists():
+                        file.unlink()
+                        return entity.set_move_type("no_meta_deleted_due_to_duplication")
+                    else:
+                        shutil.move(str(file), str(newfile))
+                        logger.info(f"메타 실패 단독 파일을 이동했습니다: {newfile}")
+                        return entity.set_target(newfile).set_move_type(move_type)
+                except Exception as e:
+                    logger.error(f"메타 실패 파일 이동 중 오류: {file} -> {newfile}, 오류: {e}")
+                    return entity.set_move_type("move_fail")
+
+        # 메타 성공 등 일반 이동은 기존 공통 로직 사용
+        return CensoredTask.__file_move_logic(config, info, model_class)
+
+
+    @staticmethod
     def __execute_plan(config, execution_plan, db_model, task_context=None):
         if task_context is None: task_context = {}
         
@@ -864,6 +1111,13 @@ class Task:
                     logger.debug(f"'{pure_code}' 부가 파일 생성/갱신이 필요하여 번역이 포함된 메타데이터를 다시 요청합니다.")
                     config['_skip_trans_temp'] = False
                     meta_info_for_group = Task._get_metadata(config, first_info)
+
+            if meta_info_for_group and config.get('메타데이터기반파일명변경', False):
+                for info in group_infos:
+                    if info.get('file_type') == 'video':
+                        new_name = Task.assemble_western_filename(config, info, meta_info_for_group)
+                        info['newfilename'] = new_name
+                        logger.info(f"메타데이터 기반 파일명 생성: '{info['original_file'].name}' -> '{new_name}'")
 
             processed_dirs_for_group = set()
 
@@ -951,8 +1205,11 @@ class Task:
                             except Exception as meta_e:
                                 logger.error(f"부가 파일 생성 중 오류: {meta_e}")
 
-                    # 2. 동반 자막 선이동
-                    if 'companion_subs_list' in info:
+                    is_meta_fail = (move_type in ['no_meta', 'meta_fail'])
+                    is_subfolder_fail = is_meta_fail and bool(Task._get_subfolder_to_move(info['original_file'], config.get('다운로드폴더', [])))
+
+                    # 2. 동반 자막 선이동 (단, 메타 실패 폴더 통째 이동 대상인 경우 자막도 폴더에 보존되므로 개별 선이동 제외)
+                    if 'companion_subs_list' in info and not is_subfolder_fail:
                         for s_info in info['companion_subs_list']:
                             sub_ext = s_info['original_file'].suffix
                             logger.info(f"{log_prefix} 동반 자막 선이동: {s_info['original_file'].name}")
@@ -969,8 +1226,8 @@ class Task:
                             if s_entity and s_entity.target_path: 
                                 s_entity.save()
 
-                    # 3. 본 영상 이동
-                    entity = CensoredTask.__file_move_logic(config, info, db_model)
+                    # 3. 본 영상 이동 (Western 전용 __file_move_logic 호출)
+                    entity = Task.__file_move_logic(config, info, db_model, task_context)
                     
                     if entity or config.get('드라이런', False):
                         if entity: 

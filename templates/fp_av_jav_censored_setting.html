@@ -62,6 +62,16 @@
 
     {{ macros.setting_checkbox('jav_censored_include_media_info_in_filename', '미디어 정보 추가', value=arg['jav_censored_include_media_info_in_filename'], desc=['On: ffprobe로 추출한 해상도, 코덱 등의 미디어 정보를 파일명에 추가합니다.', 'metadata_jav_settings.yaml 파일의 fp_filename_with_ffprobe 섹션에서 고급 설정이 가능하며, ffmpeg(ffprobe) 설치가 필요합니다.']) }}
 
+    <div id="jav_censored_include_media_info_in_filename_div" class="collapse">
+      {{ macros.setting_input_text_and_buttons('jav_censored_media_info_template', '미디어 정보 템플릿', [['jav_censored_media_info_template_default_btn', '기본값(비우기)']], value=arg['jav_censored_media_info_template'], desc=[
+        '파일명에 삽입될 미디어 정보의 형태를 지정합니다.',
+        '• 빈칸 유지 시: 고급 설정 YAML(`jav_custom_settings.yaml`)의 `media_info_template` 설정을 그대로 사용합니다.',
+        '• 사용 가능 변수: {res_tag}, {width}, {height}, {v_codec}, {a_codec}, {a_bitrate}, {fps}, {tag_title}',
+        '• 조건부 문법 [[ ... ]]: 대괄호 안의 모든 변수가 유효할 때만 해당 덩어리가 출력됩니다. (예: {a_bitrate}가 없으면 [[-{a_bitrate}kbps]] 전체 생략)',
+        '• 기본 서식: [[{res_tag}]][[.{v_codec}]][[.{fps}fps]][[.{a_codec}]][[-{a_bitrate}kbps]]'
+      ]) }}
+    </div>
+
     {{ macros.setting_checkbox('jav_censored_include_original_filename', '파일명 변경시 원본 파일명 처리', value=arg['jav_censored_include_original_filename'], desc=['On : 파일명 변경시 원본파일명을 포함합니다.', '내용은 같으나 품질이 다른 영상 처리시 유용합니다.', '변경파일명 [원본파일명처리].확장자', 'Off: 원본파일명은 지워짐']) }}
 
     <div id="jav_censored_include_original_filename_div" class="collapse">
@@ -149,6 +159,16 @@ $(document).ready(function(){
 
   use_collapse("jav_censored_companion_enable");
   use_collapse("jav_censored_companion_use_separate_path");
+  use_collapse("jav_censored_include_media_info_in_filename");
+});
+
+$('#jav_censored_include_media_info_in_filename').change(function() {
+  use_collapse('jav_censored_include_media_info_in_filename');
+});
+
+$('#jav_censored_media_info_template_default_btn').click(function(e) {
+  e.preventDefault();
+  $('#jav_censored_media_info_template').val('');
 });
 
 $('#jav_censored_companion_enable').change(function() {

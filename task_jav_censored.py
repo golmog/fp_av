@@ -57,6 +57,7 @@ class TaskBase:
             "메타사용": ModelSetting.get("jav_censored_use_meta"),
             "파일명변경": ModelSetting.get_bool("jav_censored_change_filename"),
             "파일명에미디어정보포함": ModelSetting.get_bool("jav_censored_include_media_info_in_filename"),
+            "미디어정보템플릿": ModelSetting.get("jav_censored_media_info_template").strip(),
             "분할파일처리": ModelSetting.get_bool("jav_censored_process_part_files"),
             "원본파일명포함여부": ModelSetting.get_bool("jav_censored_include_original_filename"),
             "원본파일명처리옵션": ModelSetting.get("jav_censored_include_original_filename_option"),
@@ -441,25 +442,34 @@ class Task:
                 # --- ffprobe 관련 설정 로드 ---
                 default_media_info_config = {
                     'ffprobe_path': '/usr/bin/ffprobe',
-                    'tolerance': { 'audio_bitrate': 5, 'fps': 0.01 },
+                    'tolerance': {'audio_bitrate': 5, 'fps': 0.01},
                     'standard_fps_values': [23.976, 24, 25, 29.97, 30, 59.94, 60],
                     'resolution_tiers': [
-                        {'min_height': 4000, 'max_height': 6000, 'tag': '8K'},
-                        {'min_height': 1600, 'max_height': 4000, 'tag': '4K'},
-                        {'min_height': 900, 'max_height': 1600, 'tag': 'FHD'},
-                        {'min_height': 600, 'max_height': 900, 'tag': 'HD'},
-                        {'min_height': 0, 'max_height': 600, 'tag': 'SD'}
+                        {'min_height': 4000, 'max_height': 6000, 'tag': "8K"},
+                        {'min_height': 2880, 'max_height': 4000, 'tag': "6K"},
+                        {'min_height': 1600, 'max_height': 2880, 'tag': "4K"},
+                        {'min_height': 1200, 'max_height': 1600, 'tag': "3K"},
+                        {'min_height': 900,  'max_height': 1200, 'tag': "FHD"},
+                        {'min_height': 600,  'max_height': 900,  'tag': "HD"},
+                        {'min_height': 0,    'max_height': 600,  'tag': "SD"}
                     ],
-                    'media_info_template': "[[{res_tag}]].[[{v_codec}]].[[{fps}fps]].[[{a_codec}]][[-{a_bitrate}kbps]] [[{tag_title}]]",
-                    'reprocess_skip_pattern': r'\[(FHD|HD|SD|4K|8K|H264|H265|HEVC|AAC|AC3|OPUS)',
-                    'reprocess_insert_pattern': r'^([a-zA-Z0-9-]+)(\s\[)(.*\])$'
+                    'media_info_template': "[[{res_tag}]][[.{v_codec}]][[.{fps}fps]][[.{a_codec}]][[-{a_bitrate}kbps]]",
+                    'enable_reprocessing': True,
+                    'reprocess_skip_pattern': r'\[(SD|HD|FHD|3K|4K|6K|8K)\.(H264|H265|HEVC|AV1|VP9|AVI|MPEG)',
+                    'reprocess_insert_pattern': r'^([a-zA-Z0-9]+-[a-zA-Z0-9-_]+)(\s\[)(.*\](?:cd\d+)?)$'
                 }
+
+                # 1단계: 고급 설정 YAML(filename_with_media_info)이 있으면 덮어쓰기
                 media_info_config = jav_settings.get('filename_with_media_info', {})
-                # nested dict update
                 default_media_info_config.update({k: v for k, v in media_info_config.items() if not isinstance(v, dict)})
                 default_media_info_config.get('tolerance', {}).update(media_info_config.get('tolerance', {}))
+
+                # 2단계: UI / DB 설정에 사용자가 입력한 값이 있다면 최우선 오버라이드
+                ui_template = config.get('미디어정보템플릿') or config.get('media_info_template')
+                if ui_template and ui_template.strip():
+                    default_media_info_config['media_info_template'] = ui_template.strip()
+
                 config['미디어정보설정'] = default_media_info_config
-                # 미디어 분석 실패 처리 설정
                 config['미디어정보실패시이동'] = media_info_config.get('실패시별도경로로이동', True)
                 config['미디어정보실패시이동경로'] = media_info_config.get('실패시이동경로', '')
 

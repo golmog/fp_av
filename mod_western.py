@@ -31,7 +31,9 @@ class ModuleWestern(PluginModuleBase):
             # 서양 전용 메타데이터 매칭 커트라인 점수
 
             # filename
-            f"{self.name}_rename_from_folder": "False",
+            f"{self.name}_change_filename": "False",
+            f"{self.name}_change_filename_type": "folder",
+            f"{self.name}_filename_template": "{studio} - {actor_3} - {title} ({year}) [{res_tag}]",
 
             # folders
             f"{self.name}_folder_format": "{studio}", 
