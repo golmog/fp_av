@@ -43,8 +43,28 @@
   {{ macros.m_tab_content_end() }}
 
   {{ macros.m_tab_content_start('filename', false) }}
-    {{ macros.setting_checkbox('western_rename_from_folder', '서브 폴더명으로 파일명 변경', value=arg['western_rename_from_folder'], desc=['On: 다운로드 폴더 내의 하위 폴더에 영상 파일이 단 1개만 존재할 경우, 영상 파일의 이름을 해당 폴더의 이름으로 자동 변경합니다.', '서양 영상 다운로드 시 파일명이 축약되어 있는 문제를 해결하고 메타데이터 검색 성공률을 높이는 데 유용합니다.', '예: FolderName/short_name.mp4 -> FolderName/FolderName.mp4']) }}
-    
+    {{ macros.setting_checkbox('western_change_filename', '파일명 변경', value=arg['western_change_filename'], desc=['On: 아래에서 선택한 방식에 따라 파일명을 변경합니다.', 'Off: 원본 파일명 유지 (기본값)']) }}
+
+    <div id="western_change_filename_div" class="collapse">
+      {{ macros.setting_radio_with_value('western_change_filename_type', '변경 방식', [['folder', '서브 폴더명으로 변경'], ['meta', '메타데이터 템플릿 변경']], value=arg['western_change_filename_type'], desc=['서브 폴더명: 하위 폴더에 영상이 단 1개일 경우 폴더명을 파일명으로 교체합니다.', '메타데이터 템플릿: 원본 파일명을 무시하고 메타데이터 및 템플릿 규칙으로 파일명을 생성합니다.']) }}
+
+      <div id="western_filename_template_div" class="collapse">
+        {{ macros.setting_input_text_and_buttons('western_filename_template', '파일명 템플릿', [['western_filename_template_default_btn', '기본값']], value=arg['western_filename_template'], desc=[
+          '메타데이터를 기반으로 생성할 파일명 서식을 지정합니다. (확장자 제외)',
+          '• <b>{studio}</b>: 스튜디오명 (예: WowGirls) | <b>{studio_1}</b>: 스튜디오 첫 글자 (A-Z, 09, #)',
+          '• <b>{title}</b>: 작품/씬 제목 (예: Timeless Hotness)',
+          '• <b>{year}</b>: 출시 연도 (예: 2026)',
+          '• <b>{actor}</b>: 남성을 제외한 전체 출연 배우 (쉼표 구분)',
+          '• <b>{actor_N}</b>: 남성을 제외한 배우를 최대 N명까지 표시 (예: {actor_1}, {actor_2}, {actor_3})',
+          '• <b>{res_tag}</b>: 해상도 태그 (4K, FHD, HD, SD, 8K)',
+          '• <b>{v_codec}</b>: 비디오 코덱 (H264, HEVC 등) | <b>{a_codec}</b>: 오디오 코덱 (AAC 등)',
+          '• <b>{code}</b>: 씬/영화 ID 고유 코드 | <b>{filename}</b>: 원본 파일명',
+          '• <b>{bytes}</b> (또는 {filesize}): 파일 크기 Byte 숫자 (동일 파일명 중복 회피용 해시)',
+          '• 기본값: <code>{studio} - {actor_3} - {title} ({year}) [{res_tag}]</code>'
+        ]) }}
+      </div>
+    </div>
+
     {{ macros.m_hr() }}
     {{ macros.setting_checkbox('western_companion_enable', '동반자막 처리', value=arg['western_companion_enable'], desc=['On: 영상과 같은 이름의 자막 파일이 존재하면 파일명 변경 시 영상과 이름을 동기화하고 함께 처리합니다.']) }}
     
@@ -132,6 +152,29 @@ $(document).ready(function(){
   use_collapse("western_companion_enable");
   use_collapse("western_companion_use_separate_path");
   use_collapse("western_movie_type_use_separate_path");
+  use_collapse("western_change_filename");
+  set_filename_type("{{arg['western_change_filename_type']}}");
+});
+
+$('#western_change_filename').change(function() {
+  use_collapse('western_change_filename');
+});
+
+$('input[type=radio][name=western_change_filename_type]').change(function() {
+  set_filename_type(this.value);
+});
+
+function set_filename_type(value) {
+  if (value == 'meta') {
+    $('#western_filename_template_div').collapse('show');
+  } else {
+    $('#western_filename_template_div').collapse('hide');
+  }
+}
+
+$('#western_filename_template_default_btn').click(function(e) {
+  e.preventDefault();
+  $('#western_filename_template').val('{studio} - {actor_3} - {title} ({year}) [{res_tag}]');
 });
 
 $('#western_companion_enable').change(function() {
