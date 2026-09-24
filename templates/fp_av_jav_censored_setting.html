@@ -65,10 +65,10 @@
     <div id="jav_censored_include_media_info_in_filename_div" class="collapse">
       {{ macros.setting_input_text_and_buttons('jav_censored_media_info_template', '미디어 정보 템플릿', [['jav_censored_media_info_template_default_btn', '기본값(비우기)']], value=arg['jav_censored_media_info_template'], desc=[
         '파일명에 삽입될 미디어 정보의 형태를 지정합니다.',
-        '• <b>빈칸 유지 시</b>: 고급 설정 YAML(<code>jav_settings.yaml</code>)의 <code>media_info_template</code> 설정을 그대로 사용합니다.',
-        '• <b>사용 가능 변수</b>: {res_tag}, {width}, {height}, {v_codec}, {a_codec}, {a_bitrate}, {fps}, {tag_title}',
-        '• <b>조건부 문법 [[ ... ]]</b>: 대괄호 안의 모든 변수가 유효할 때만 해당 덩어리가 출력됩니다. (예: {a_bitrate}가 없으면 [[-{a_bitrate}kbps]] 전체 생략)',
-        '• 기본 서식: <code>[[{res_tag}]][[.{v_codec}]][[.{fps}fps]][[.{a_codec}]][[-{a_bitrate}kbps]]</code>'
+        '• 빈칸 유지 시: 고급 설정 YAML(`jav_custom_settings.yaml`)의 `media_info_template` 설정을 그대로 사용합니다.',
+        '• 사용 가능 변수: {res_tag}, {width}, {height}, {v_codec}, {a_codec}, {a_bitrate}, {fps}, {tag_title}',
+        '• 조건부 문법 [[ ... ]]: 대괄호 안의 모든 변수가 유효할 때만 해당 덩어리가 출력됩니다. (예: {a_bitrate}가 없으면 [[-{a_bitrate}kbps]] 전체 생략)',
+        '• 기본 서식: [[{res_tag}]][[.{v_codec}]][[.{fps}fps]][[.{a_codec}]][[-{a_bitrate}kbps]]'
       ]) }}
     </div>
 

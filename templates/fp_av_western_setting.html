@@ -51,16 +51,16 @@
       <div id="western_filename_template_div" class="collapse">
         {{ macros.setting_input_text_and_buttons('western_filename_template', '파일명 템플릿', [['western_filename_template_default_btn', '기본값']], value=arg['western_filename_template'], desc=[
           '메타데이터를 기반으로 생성할 파일명 서식을 지정합니다. (확장자 제외)',
-          '• <b>{studio}</b>: 스튜디오명 (예: WowGirls) | <b>{studio_1}</b>: 스튜디오 첫 글자 (A-Z, 09, #)',
-          '• <b>{title}</b>: 작품/씬 제목 (예: Timeless Hotness)',
-          '• <b>{year}</b>: 출시 연도 (예: 2026)',
-          '• <b>{actor}</b>: 남성을 제외한 전체 출연 배우 (쉼표 구분)',
-          '• <b>{actor_N}</b>: 남성을 제외한 배우를 최대 N명까지 표시 (예: {actor_1}, {actor_2}, {actor_3})',
-          '• <b>{res_tag}</b>: 해상도 태그 (4K, FHD, HD, SD, 8K)',
-          '• <b>{v_codec}</b>: 비디오 코덱 (H264, HEVC 등) | <b>{a_codec}</b>: 오디오 코덱 (AAC 등)',
-          '• <b>{code}</b>: 씬/영화 ID 고유 코드 | <b>{filename}</b>: 원본 파일명',
-          '• <b>{bytes}</b> (또는 {filesize}): 파일 크기 Byte 숫자 (동일 파일명 중복 회피용 해시)',
-          '• 기본값: <code>{studio} - {actor_3} - {title} ({year}) [{res_tag}]</code>'
+          '• {studio}: 스튜디오명 (예: WowGirls) | {studio_1}: 스튜디오 첫 글자 (A-Z, 09, #)',
+          '• {title}: 작품/씬 제목 (예: Timeless Hotness)',
+          '• {year}: 출시 연도 (예: 2026)',
+          '• {actor}: 남성을 제외한 전체 출연 배우 (쉼표 구분)',
+          '• {actor_N}: 남성을 제외한 배우를 최대 N명까지 표시 (예: {actor_1}, {actor_2}, {actor_3})',
+          '• {res_tag}: 해상도 태그 (4K, FHD, HD, SD, 8K)',
+          '• {v_codec}: 비디오 코덱 (H264, HEVC 등) | {a_codec}: 오디오 코덱 (AAC 등)',
+          '• {code}: 씬/영화 ID 고유 코드 | {filename}: 원본 파일명',
+          '• {bytes} (또는 {filesize}): 파일 크기 Byte 숫자 (동일 파일명 중복 회피용 해시)',
+          '• 기본값: {studio} - {actor_3} - {title} ({year}) [{res_tag}]'
         ]) }}
       </div>
     </div>
